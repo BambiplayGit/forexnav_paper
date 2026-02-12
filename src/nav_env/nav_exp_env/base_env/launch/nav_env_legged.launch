@@ -1,0 +1,70 @@
+<launch>
+  <!-- 
+    nav_env + 四足动力学可视化：完全绕过 Champ 控制器
+    - 使用 simple_odom_simulator 的 PD 动力学
+    - gait_joint_publisher 直接根据 odom 速度生成 joint_states，严格同步
+    - 支持前进/后退/左右平移/左转/右转
+    - robot_type: "zsl-1" (智身) 或 "go2" (宇树)
+  -->
+  <arg name="robot_type" default="zsl-1" doc="Robot type: zsl-1 (智身) or go2 (宇树)" />
+  <arg name="map_name" default="office1" />
+  <arg name="use_click_pos_cmd" default="true" />
+  <arg name="init_x" default="-6.0" />
+  <arg name="init_y" default="10.0" />
+  <arg name="init_yaw" default="-1.57" />
+  <arg name="map_x_size" default="20.0" />
+  <arg name="map_y_size" default="40.0" />
+  <arg name="planning_height" default="1.0" />
+  <arg name="rviz" default="true" />
+  <arg name="rviz_config" default="$(find legged_config)/config/leg_visualization.rviz" />
+
+  <!-- nav_env: map, odom simulator, local sensing -->
+  <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
+    <arg name="rviz" value="false" />
+    <arg name="use_click_pos_cmd" value="$(arg use_click_pos_cmd)" />
+    <arg name="planning_height" value="$(arg planning_height)" />
+    <arg name="publish_base_footprint" value="true" />
+    <arg name="gait_freq" value="2.0" />
+    <arg name="body_sway_amp" value="0.005" />
+    <arg name="body_bob_amp" value="0.004" />
+    <arg name="yaw_sway_amp" value="0.008" />
+    <arg name="yaw_step_amp" value="0.03" />
+    <arg name="angular_smooth_alpha" value="0.5" />
+    <arg name="init_x" value="$(arg init_x)" />
+    <arg name="init_y" value="$(arg init_y)" />
+    <arg name="init_yaw" value="$(arg init_yaw)" />
+    <arg name="map_x_size" value="$(arg map_x_size)" />
+    <arg name="map_y_size" value="$(arg map_y_size)" />
+  </include>
+
+  <!-- ========== 机器人模型: 根据 robot_type 选择 ========== -->
+  <!-- ZSL-1 (智身) -->
+  <group if="$(eval arg('robot_type') == 'zsl-1')">
+    <param name="robot_description" textfile="$(find legged_config)/config/robots/zsl-1/urdf/ZSL-1.urdf" />
+  </group>
+  <!-- GO2 (宇树) -->
+  <group if="$(eval arg('robot_type') == 'go2')">
+    <param name="robot_description" textfile="$(find legged_config)/config/robots/go2/go2_description.urdf" />
+  </group>
+
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
+    <param name="publish_frequency" value="100" />
+  </node>
+
+  <!-- 独立步态关节发布：CHAMP 风格 stance/swing 相位，Raibert 步幅匹配 -->
+  <node pkg="nav_exp_env" type="gait_joint_publisher.py" name="gait_joint_publisher" output="screen">
+    <param name="robot_type" value="$(arg robot_type)" />
+    <param name="gait_freq" value="2.0" />
+    <param name="max_vel" value="2.0" />
+    <param name="stance_duration" value="0.25" />
+    <param name="swing_lift" value="0.25" />
+    <param name="max_thigh_amp" value="0.45" />
+    <param name="hip_turn_amp" value="0.08" />
+    <param name="vel_smooth_alpha" value="0.15" />
+    <param name="publish_rate" value="100" />
+  </node>
+
+  <!-- RViz 四足可视化 -->
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
+        args="-d $(arg rviz_config) -f odom" />
+</launch>

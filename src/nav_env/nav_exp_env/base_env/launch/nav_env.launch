@@ -1,0 +1,106 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="map_name" default="office1" />
+  <arg name="rviz" default="true" />
+  <arg name="use_click_pos_cmd" default="true" />
+  <arg name="publish_cmd_vel" default="false" />
+  <arg name="publish_base_footprint" default="false" />  <!-- true: for gait_joint_publisher / robot model -->
+  <arg name="gait_freq" default="2.0" />
+  <arg name="body_sway_amp" default="0.008" />
+  <arg name="body_bob_amp" default="0.005" />
+  <arg name="yaw_sway_amp" default="0.01" />
+  <arg name="yaw_step_amp" default="0.03" />
+  <arg name="angular_smooth_alpha" default="0.5" />
+  <arg name="kp_pos" default="3.5" />
+  <arg name="kd_pos" default="2.0" />
+  <arg name="planning_height" default="1.0" />
+  <arg name="click_fixed_z" default="$(arg planning_height)" />
+  <arg name="click_fixed_yaw" default="0.0" />
+
+  <!-- Map configs: office1 -->
+  <arg name="init_x" default="-6.0" />
+  <arg name="init_y" default="10.0" />
+  <arg name="init_yaw" default="-1.57" />
+  <arg name="rotate_z" default="0.0" />
+  <arg name="trans_x" default="0.0" />
+  <arg name="trans_y" default="0.0" />
+  <arg name="pcd_file" default="office.pcd" />
+  
+  <!-- Occupancy map size (meters) - adjust to match your environment -->
+  <!-- For CogniPlan: smaller maps work better (GAN input is 256x256 pixels) -->
+  <!-- Example: 30x40m with 0.1m resolution = 300x400 pixels -->
+  <arg name="map_x_size" default="30.0" />
+  <arg name="map_y_size" default="40.0" />
+
+  <!-- Map loader node -->
+  <node pkg="map_loader" type="map_loader_node" name="map_loader" ns="map_loader" output="screen">
+    <param name="pcd_path" value="$(find map_loader)/resource/$(arg pcd_file)" />
+    <param name="rotate_z" value="$(arg rotate_z)" />
+    <param name="trans_x" value="$(arg trans_x)" />
+    <param name="trans_y" value="$(arg trans_y)" />
+    <param name="trans_z" value="-0.3" />
+    <param name="frame_id" value="world" />
+  </node>
+
+  <!-- Static TF: world to odom -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_odom_broadcaster"
+        args="0 0 0 0 0 0 world odom" />
+
+  <!-- Odometry simulator: the ONLY /odom publisher -->
+  <node pkg="nav_exp_env" type="simple_odom_simulator.py" name="simple_odom_simulator" output="screen">
+    <param name="init_x" value="$(arg init_x)" />
+    <param name="init_y" value="$(arg init_y)" />
+    <param name="init_z" value="$(arg planning_height)" />
+    <param name="init_yaw" value="$(arg init_yaw)" />
+    <param name="publish_frequency" value="50.0" />
+    <param name="publish_cmd_vel" value="$(arg publish_cmd_vel)" />
+    <param name="publish_base_footprint" value="$(arg publish_base_footprint)" />
+    <param name="gait_freq" value="$(arg gait_freq)" />
+    <param name="body_sway_amp" value="$(arg body_sway_amp)" />
+    <param name="body_bob_amp" value="$(arg body_bob_amp)" />
+    <param name="yaw_sway_amp" value="$(arg yaw_sway_amp)" />
+    <param name="yaw_step_amp" value="$(arg yaw_step_amp)" />
+    <param name="angular_smooth_alpha" value="$(arg angular_smooth_alpha)" />
+    <param name="kp_pos" value="$(arg kp_pos)" />
+    <param name="kd_pos" value="$(arg kd_pos)" />
+  </node>
+
+  <!-- Clicked point -> /planning/pos_cmd (drives simple_odom_simulator) -->
+  <node pkg="nav_exp_env" type="clicked_point_to_pos_cmd.py" name="clicked_point_to_pos_cmd" output="screen"
+        if="$(arg use_click_pos_cmd)">
+    <param name="fixed_z" value="$(arg click_fixed_z)" />
+    <param name="fixed_yaw" value="$(arg click_fixed_yaw)" />
+    <param name="frame_id" value="world" />
+  </node>
+
+  <!-- Local sensing node -->
+  <!-- Map size should match your actual environment -->
+  <!-- For 20x30m map with 0.1m resolution: 200x300 pixels (close to GAN's 256x256) -->
+  <node pkg="local_sensing" type="local_sensing_node" name="local_sensing" ns="local_sensing" output="screen">
+    <rosparam file="$(find local_sensing)/params/local_sensing.yaml" command="load" />
+    <param name="map/x_size" value="$(arg map_x_size)" />
+    <param name="map/y_size" value="$(arg map_y_size)" />
+    <param name="map/resolution" value="0.1" />
+    <param name="use_relative_cloud" value="true" />
+    <param name="cloud_frame_id" value="base_link" />
+    <remap from="global_map" to="/map_loader/global_cloud" />
+    <remap from="odometry" to="/odom" />
+  </node>
+
+  <!-- Odometry path publisher -->
+  <node pkg="nav_exp_env" type="odom_path_publisher.py" name="odom_path_publisher" output="screen">
+    <param name="max_path_length" value="2000" />
+    <param name="publish_rate" value="10.0" />
+    <param name="min_distance" value="0.05" />
+  </node>
+
+  <!-- Static TF: world to navigation -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="tf_nav"
+        args="0 0 0 0 0 0 world navigation" />
+
+  <!-- RViz -->
+  <node pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
+        args="-d $(find nav_exp_env)/base_env/config/nav_env.rviz -f odom"
+        if="$(arg rviz)" />
+
+</launch>

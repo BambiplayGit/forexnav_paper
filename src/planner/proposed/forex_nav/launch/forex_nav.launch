@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Launch arguments -->
+    <arg name="max_vel" default="4.0" doc="Maximum velocity (m/s)" />
+    <arg name="max_acc" default="2.0" doc="Maximum acceleration (m/s^2)" />
+    <arg name="planning_height" default="1.0" doc="Robot planning height (m)" />
+    <arg name="rviz" default="true" doc="Whether to launch RViz" />
+    
+    <!-- Include nav_exp_env launch (disable rviz, we'll use our own) -->
+    <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
+        <arg name="rviz" value="false" />
+        <arg name="map_x_size" value="20" />
+        <arg name="map_y_size" value="30" />
+        <arg name="planning_height" value="$(arg planning_height)" />
+    </include>
+    
+    <!-- Include gen_viewpoint launch -->
+    <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch" />
+    
+    <!-- ForexNav node -->
+    <node pkg="forex_nav" type="forex_nav_node" name="forex_nav" output="screen">
+        <!-- FSM parameters -->
+        <param name="fsm/replan_thresh1" value="0.4" />
+        <param name="fsm/replan_thresh2" value="0.3" />
+        <param name="fsm/replan_thresh3" value="2.0" />
+        <param name="fsm/replan_time" value="0.3" />
+        <param name="fsm/goal_reached_threshold" value="0.5" />
+        <param name="fsm/no_replan_dist_to_goal" value="1.5" />
+        
+        <!-- Navigation parameters -->
+        <param name="nav/w_dist" value="2.0" />
+        <param name="nav/w_pred" value="1.5" />
+        <param name="nav/w_curve" value="0.3" />
+        <param name="nav/w_homo" value="0.3" />
+        <param name="nav/max_vel" value="$(arg max_vel)" />
+        <param name="nav/max_acc" value="$(arg max_acc)" />
+        <param name="nav/max_yawdot" value="2.09" />
+        <param name="nav/traj_dt" value="0.02" />
+        <param name="nav/vis_candidate_path_count" value="3"/>
+        <param name="nav/planning_height" value="$(arg planning_height)" />
+    </node>
+    
+    <!-- Include map_predictor launch -->
+    <!-- <include file="$(find map_predictor)/launch/map_predictor.launch" /> -->
+    
+    <!-- RViz for forex_nav visualization -->
+    <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz" 
+          args="-d $(find nav_exp_env)/proposed/config/forex_nav.rviz -f odom" output="screen" />
+</launch>

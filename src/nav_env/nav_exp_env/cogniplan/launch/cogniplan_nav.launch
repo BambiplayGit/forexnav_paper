@@ -1,0 +1,58 @@
+<launch>
+  <!-- Arguments -->
+  <arg name="rviz" default="true" />
+  <arg name="rviz_config" default="$(find nav_exp_env)/cogniplan/config/cogniplan.rviz" />
+  
+  <!-- Map size (meters) - adjust to match your environment -->
+  <!-- For CogniPlan: smaller maps work better (GAN input is 256x256 pixels) -->
+  <!-- Example: 30x40m with 0.1m resolution = 300x400 pixels -->
+  <arg name="map_x_size" default="20.0" />
+  <arg name="map_y_size" default="30.0" />
+  
+  <!-- CogniPlan Nav model paths (relative to package) -->
+  <arg name="model_path" default="$(find nav_exp_env)/cogniplan/checkpoints/cogniplan_nav_pred7" />
+  <arg name="generator_path" default="$(find nav_exp_env)/cogniplan/checkpoints/wgan_inpainting" />
+
+  <!-- Your nav_env (no click-driven pos_cmd when planner is used) -->
+  <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
+    <arg name="use_click_pos_cmd" value="false" />
+    <arg name="rviz" value="false" />
+    <arg name="map_x_size" value="$(arg map_x_size)" />
+    <arg name="map_y_size" value="$(arg map_y_size)" />
+  </include>
+
+  <!-- TF: map = world so planner frame matches your env -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map"
+        args="0 0 0 0 0 0 world map" />
+
+  <!-- CogniPlan Nav Planner (9-dim input with direction_vector) -->
+  <node pkg="nav_exp_env" type="rl_planner_nav.py" name="rl_planner_nav" output="screen"
+        cwd="node" ns="cogniplan">
+    <!-- Topic remapping -->
+    <remap from="/projected_map" to="/local_sensing/occupancy_grid" />
+    <remap from="/state_estimation" to="/odom" />
+    
+    <!-- Parameters -->
+    <param name="model_path" value="$(arg model_path)" />
+    <param name="generator_path" value="$(arg generator_path)" />
+    <param name="publish_graph" type="bool" value="true"/>
+    <param name="map_resolution" value="0.1"/>
+    <param name="waypoint_threshold" value="1.0"/>
+    <param name="goal_reached_threshold" value="0.5"/>
+    <param name="replanning_frequency" value="2.0"/>
+  </node>
+
+  <!-- Trajectory smoother: /planning/raw_path -> /planning/pos_cmd -->
+  <node pkg="nav_exp_env" type="poly_traj_smoother.py" name="poly_traj_smoother" output="screen">
+    <param name="path_topic" value="/planning/raw_path" />
+    <param name="max_vel"  value="4.0" />
+    <param name="max_acc"  value="2.0" />
+    <param name="publish_rate" value="50.0" />
+    <param name="fixed_z" value="1.0" />
+  </node>
+
+  <!-- RViz -->
+  <node pkg="rviz" type="rviz" name="rviz_cogniplan" output="screen"
+        args="-d $(arg rviz_config)"
+        if="$(arg rviz)" />
+</launch>

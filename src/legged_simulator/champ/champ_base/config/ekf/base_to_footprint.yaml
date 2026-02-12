@@ -1,0 +1,33 @@
+frequency: 50
+
+transform_timeout: 0.01
+transform_time_offset: 0.045
+
+two_d_mode: false
+# diagnostics_agg: true
+
+# 禁用TF发布，避免与robot_state_publisher冲突
+publish_tf: false
+
+#x     , y     , z,
+#roll  , pitch , yaw,
+#vx    , vy    , vz,
+#vroll , vpitch, vyaw,
+#ax    , ay    , az
+
+pose0: base_to_footprint_pose
+pose0_config: [true,  true,  true,
+               true,  true,  true,
+               false, false, false,
+               false, false, false,
+               false, false, false]
+
+imu0: imu/data
+imu0_config: [false, false, false,
+              false, false, false,
+              true, true, true,
+              false, false, false,
+              false, false, false]
+
+odom_frame: base_footprint
+world_frame: base_footprint

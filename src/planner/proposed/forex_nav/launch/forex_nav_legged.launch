@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- forex_nav + 四足动力学可视化：与 forex_nav 完全相同的使用方式 -->
+  <!-- 用 RViz 的 "2D Nav Goal" 设置目标点，机器人会规划并沿轨迹移动 -->
+  <arg name="max_vel" default="2.0" doc="Maximum velocity (m/s)" />
+  <arg name="max_acc" default="2.0" doc="Maximum acceleration (m/s^2)" />
+  <arg name="planning_height" default="0.4" doc="Robot planning height (m)" />
+  <arg name="map_x_size" default="16" />
+  <arg name="map_y_size" default="30" />
+
+  <include file="$(find nav_exp_env)/base_env/launch/nav_env_legged.launch">
+    <arg name="use_click_pos_cmd" value="false" />
+    <arg name="planning_height" value="$(arg planning_height)" />
+    <arg name="map_x_size" value="$(arg map_x_size)" />
+    <arg name="map_y_size" value="$(arg map_y_size)" />
+    <arg name="rviz_config" value="$(find nav_exp_env)/proposed/config/forex_nav.rviz" />
+  </include>
+
+  <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch" />
+
+  <node pkg="forex_nav" type="forex_nav_node" name="forex_nav" output="screen">
+    <param name="fsm/replan_thresh1" value="0.4" />
+    <param name="fsm/replan_thresh2" value="0.3" />
+    <param name="fsm/replan_thresh3" value="2.0" />
+    <param name="fsm/replan_time" value="0.3" />
+    <param name="fsm/goal_reached_threshold" value="0.5" />
+    <param name="fsm/no_replan_dist_to_goal" value="1.5" />
+    <param name="nav/w_dist" value="2.0" />
+    <param name="nav/w_pred" value="1.5" />
+    <param name="nav/w_curve" value="0.3" />
+    <param name="nav/w_homo" value="0.3" />
+    <param name="nav/max_vel" value="$(arg max_vel)" />
+    <param name="nav/max_acc" value="$(arg max_acc)" />
+    <param name="nav/max_yawdot" value="2.09" />
+    <param name="nav/traj_dt" value="0.02" />
+    <param name="nav/vis_candidate_path_count" value="3"/>
+    <param name="nav/planning_height" value="$(arg planning_height)" />
+  </node>
+</launch>

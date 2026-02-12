@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="map_predictor" type="map_predictor_node.py" name="map_predictor" output="screen" />
+</launch>

@@ -1,0 +1,25 @@
+inpaint_node:
+  # 与 ForexNav 管线对齐: input_image 订阅 local_sensing 发布的 2D 栅格图像
+  topics:
+    input_image: "/local_sensing/occupancy_grid_image"
+    input_map: "/local_sensing/occupancy_grid"
+    input_odom: "/odom"
+    input_goal: "/move_base_simple/goal"
+    output_image: "/inpainted/image"
+    output_dashboard: "/inpainted/dashboard"
+    output_map: "/inpainted/map"
+
+  model:
+    checkpoint_path: "checkpoints/wgan_inpainting" # 注意这里要是绝对路径或者相对于运行目录的路径
+    image_shape: [256, 256]
+
+  algorithm:
+    window_size: 1
+    fusion_temperature: 0.1
+    beta: 0.2
+    min_pixel_thresh: 1
+    unknown_thresh: 0.1
+
+  benchmark:
+    update_delay: 0.5
+    benchmark_delay: 5.0

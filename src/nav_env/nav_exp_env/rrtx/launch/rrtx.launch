@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Arguments -->
+    <arg name="rviz" default="true" />
+    <arg name="map_x_size" default="20.0" />
+    <arg name="map_y_size" default="30.0" />
+
+    <!-- Include base navigation environment (disable its rviz) -->
+    <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
+        <arg name="rviz" value="false" />
+        <arg name="map_x_size" value="$(arg map_x_size)" />
+        <arg name="map_y_size" value="$(arg map_y_size)" />
+    </include>
+
+    <!-- RRTx planner node -->
+    <node pkg="rrtx_planner" type="rrtx_node.py" name="rrtx_planner" output="screen">
+        <param name="epsilon" value="1.0" />
+        <param name="ball_radius" value="2.5" />
+        <param name="sensing_radius" value="5.0" />
+        <param name="max_samples" value="8000" />
+        <param name="build_rate" value="500" />
+        <param name="move_rate" value="2.0" />
+        <param name="goal_reach_thresh" value="0.5" />
+        <param name="obstacle_cost" value="1000000.0" />
+        <param name="robot_radius" value="0.3" />
+        <param name="goal_bias" value="0.15" />
+        <param name="online_samples" value="30" />
+    </node>
+
+    <!-- Polynomial trajectory smoother -->
+    <node pkg="nav_exp_env" type="poly_traj_smoother.py" name="poly_traj_smoother" output="screen">
+        <param name="path_topic" value="/planning/raw_path" />
+        <param name="max_vel"  value="4.0" />
+        <param name="max_acc"  value="2.0" />
+        <param name="max_jerk" value="10.0" />
+        <param name="publish_rate" value="50.0" />
+        <param name="fixed_z" value="1.0" />
+    </node>
+
+    <!-- RViz -->
+    <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz"
+          args="-d $(find nav_exp_env)/rrtx/config/rrtx.rviz -f odom" output="screen" />
+
+</launch>

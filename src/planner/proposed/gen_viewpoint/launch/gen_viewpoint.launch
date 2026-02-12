@@ -1,0 +1,37 @@
+<launch>
+  <node pkg="gen_viewpoint" type="gen_viewpoint_node" name="gen_viewpoint" output="screen">
+    <param name="grid_topic" value="/local_sensing/occupancy_grid" />
+    <!-- Frontier extraction -->
+    <param name="use_8_connected_frontier" value="true" />
+    <param name="cluster_min" value="20" />
+    <param name="cluster_size_xy" value="2.0" />  <!-- Max frontier extent (m) before PCA-based splitting -->
+    <param name="cluster_size_z" value="10.0" />
+    <param name="down_sample" value="2" />
+    <!-- Viewpoint sampling -->
+    <param name="candidate_rmin" value="0.4" />
+    <param name="candidate_rmax" value="1.5" />
+    <param name="candidate_rnum" value="3" />
+    <param name="candidate_dphi" value="0.2618" />  <!-- 15 deg -->
+    <param name="min_candidate_dist" value="0.4" />
+    <param name="min_candidate_clearance" value="0.21" />
+    <!-- Viewpoint safety and scoring -->
+    <param name="min_viewpoint_distance" value="0.5" />
+    <param name="viewpoint_distance_weight" value="10.0" />
+    <param name="min_visib_num" value="10" />
+    <param name="min_view_finish_fraction" value="0.2" />
+    <!-- Visibility/FOV parameters -->
+    <param name="top_angle" value="0.785398" />  <!-- 45 deg -->
+    <param name="left_angle" value="1.047198" />  <!-- 60 deg -->
+    <param name="right_angle" value="1.047198" />  <!-- 60 deg -->
+    <param name="max_dist" value="9.5" />
+    <param name="vis_dist" value="1.0" />
+    <param name="unknown_blocks_visibility" value="true" />
+    <!-- 2D mode parameters -->
+    <param name="use_2d_mode" value="true" />
+    <param name="fixed_height_2d" value="1.0" />
+    <param name="use_strict_2d_mode" value="false" />
+    <!-- Output -->
+    <param name="max_viewpoints_total" value="50" />
+    <param name="publish_rate" value="2.0" />
+  </node>
+</launch>

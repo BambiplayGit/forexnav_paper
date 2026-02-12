@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Arguments -->
+    <arg name="rviz" default="true" />
+    <arg name="map_x_size" default="20.0" />
+    <arg name="map_y_size" default="30.0" />
+
+    <!-- Include base navigation environment (disable its rviz) -->
+    <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
+        <arg name="rviz" value="false" />
+        <arg name="map_x_size" value="$(arg map_x_size)" />
+        <arg name="map_y_size" value="$(arg map_y_size)" />
+    </include>
+
+    <!-- Traditional planner node -->
+    <node pkg="traditional_planner" type="traditional_node.py" name="traditional_planner" output="screen">
+        <param name="robot_radius" value="0.3" />
+        <param name="replan_rate" value="2.0" />
+        <param name="goal_reach_thresh" value="0.5" />
+        <param name="path_downsample" value="5" />
+        <param name="obstacle_thresh" value="50" />
+    </node>
+
+    <!-- Polynomial trajectory smoother -->
+    <node pkg="nav_exp_env" type="poly_traj_smoother.py" name="poly_traj_smoother" output="screen">
+        <param name="path_topic" value="/planning/raw_path" />
+        <param name="max_vel"  value="4.0" />
+        <param name="max_acc"  value="2.0" />
+        <param name="max_jerk" value="10.0" />
+        <param name="publish_rate" value="50.0" />
+        <param name="fixed_z" value="1.0" />
+    </node>
+
+    <!-- RViz -->
+    <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz"
+          args="-d $(find nav_exp_env)/traditional/config/traditional.rviz -f odom" output="screen" />
+
+</launch>

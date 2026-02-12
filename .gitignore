@@ -1,0 +1,21 @@
+# Catkin
+build/
+devel/
+.catkin_workspace
+*.catkin_workspace
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# OS
+.DS_Store
+Thumbs.db
