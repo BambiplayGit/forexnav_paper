@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 独立步态关节发布器：CHAMP 风格 stance/swing 相位

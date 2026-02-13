@@ -11,8 +11,8 @@
   <arg name="yaw_sway_amp" default="0.01" />
   <arg name="yaw_step_amp" default="0.03" />
   <arg name="angular_smooth_alpha" default="0.5" />
-  <arg name="kp_pos" default="3.5" />
-  <arg name="kd_pos" default="2.0" />
+  <arg name="kp_pos" default="5.0" />
+  <arg name="kd_pos" default="4.0" />
   <arg name="planning_height" default="1.0" />
   <arg name="click_fixed_z" default="$(arg planning_height)" />
   <arg name="click_fixed_yaw" default="0.0" />

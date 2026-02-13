@@ -1,0 +1,4 @@
+PROBLEM_FILE = /home/pan/forexnav_2204_transfer/forex_nav_lsy_frontend/ForexNav/src/fuel_planner/utils/lkh_tsp_solver/resource/single.tsp
+GAIN23 = NO
+OUTPUT_TOUR_FILE =/home/pan/forexnav_2204_transfer/forex_nav_lsy_frontend/ForexNav/src/fuel_planner/utils/lkh_tsp_solver/resource/single.txt
+RUNS = 1

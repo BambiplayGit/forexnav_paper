@@ -4,9 +4,9 @@
 #   enable_3d_occ=true:  深度渲染 → 3D体素 → 2D切片 (新管线)
 
 # ---- 2D平面扫描参数 (仅 enable_3d_occ=false 时使用) ----
-fov_angle: 1.396  # rad, ~80 deg 扇形FOV
+fov_angle: 1.396    # rad, ~80 deg 扇形FOV
 max_range: 10.0
-sensing_rate: 100.0
+sensing_rate: 30.0
 
 occupancy_resolution: 0.1
 
@@ -14,15 +14,15 @@ occupancy_resolution: 0.1
 publish_cloud: true
 
 # ---- 3D深度感知开关 ----
-enable_3d_occ: true
+enable_3d_occ: false
 
 # ---- 深度相机锥形感知参数 ----
-cam_h_fov: 1.22             # rad, ~70 deg 水平FOV
+cam_h_fov: 1.396             # rad, ~80 deg 水平FOV
 cam_v_fov: 1.01             # rad, ~58 deg 垂直FOV
 cam_pitch: 0.0              # rad, 相机俯仰角 (0=水平, 正值=仰视, 负值=俯视)
 cam_max_range: 10.0         # meters, 最大感知距离
 voxel_resolution: 0.1       # meters, 3D体素分辨率
-cam_sensing_rate: 10.0      # Hz, 深度管线更新频率
+cam_sensing_rate: 30.0      # Hz, 深度管线更新频率
 occ3d_accumulate: true      # 是否跨帧累积3D占据
 publish_free_voxels: false  # 是否发布空闲体素
 
@@ -35,7 +35,7 @@ slice_half_height: 0.2      # meters, 2D切片半高 (从 robot_z ± 此值范�
 # ---- 膨胀参数 (供规划器使用的安全边距) ----
 # 原始地图话题: occupancy_grid, occupancy_3d  (用于显示)
 # 膨胀地图话题: occupancy_grid_inflate, occupancy_3d_inflate (供规划器订阅)
-inflate_radius: 0.3         # meters, 障碍物膨胀半径 (0=不膨胀)
+inflate_radius: 0.2         # meters, 障碍物膨胀半径 (0=不膨胀)
 
 # ---- FOV实时可视化 ----
 publish_fov_marker: true

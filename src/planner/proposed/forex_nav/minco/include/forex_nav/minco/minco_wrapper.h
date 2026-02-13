@@ -28,6 +28,7 @@ public:
   void setOccCloud3D(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, double voxel_res);
 
   // Generate MINCO trajectory from waypoints with full GCOPTER optimization
+  // out_traj: if non-null, receives the continuous Trajectory<5> object for real-time evaluation
   bool generateTrajectory(
       const std::vector<Vector3d>& waypoints,
       const Vector3d& start_vel,
@@ -41,7 +42,8 @@ public:
       double traj_dt,
       std::vector<Vector3d>& traj_pos,
       std::vector<double>& traj_yaw,
-      std::vector<double>& traj_time);
+      std::vector<double>& traj_time,
+      Trajectory<5>* out_traj = nullptr);
 
   // Get the last generated corridors for visualization
   const std::vector<AABB2D>& getLastCorridors() const { return last_corridors_; }
@@ -87,7 +89,8 @@ private:
       double traj_dt,
       std::vector<Vector3d>& traj_pos,
       std::vector<double>& traj_yaw,
-      std::vector<double>& traj_time);
+      std::vector<double>& traj_time,
+      Trajectory<5>* out_traj = nullptr);
 };
 
 }  // namespace forex_nav

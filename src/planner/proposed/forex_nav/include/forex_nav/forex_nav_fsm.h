@@ -7,6 +7,7 @@
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <quadrotor_msgs/PositionCommand.h>
 #include <geometry_msgs/PoseArray.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -15,6 +16,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include "forex_nav/forex_nav_data.h"
 #include "forex_nav/forex_nav_manager.h"
+#include "forex_nav/minco/trajectory.hpp"
 
 namespace forex_nav {
 
@@ -49,7 +51,9 @@ private:
   void transitState(EXPL_STATE new_state, const std::string& pos_call);
   int callPlanner();
   void publishTrajectory();
+  void publishTrajectoryFallback();  // Fallback: discrete-point PoseStamped publishing
   void publishFinalPosition();  // Publish goal position to stop robot
+  static double normalizeAngle(double a);
   void visualize();
   
   // ROS node handles
@@ -64,13 +68,20 @@ private:
   std::shared_ptr<FSMParam> fp_;
   EXPL_STATE state_;
   
-  // Trajectory data
+  // Trajectory data (discrete points for visualization/debug)
   std::vector<Eigen::Vector3d> traj_positions_;
   std::vector<double> traj_yaws_;
   std::vector<double> traj_times_;
   size_t traj_index_;
   ros::Time traj_start_time_;
   ros::Time last_replan_time_;
+  
+  // Continuous MINCO trajectory for real-time p/v/a evaluation
+  Trajectory<5> minco_traj_obj_;
+  double minco_traj_duration_;
+  double minco_start_yaw_;
+  double minco_end_yaw_;
+  bool has_minco_traj_;
   
   // Path data for visualization
   std::vector<Eigen::Vector3d> astar_path_;  // A* path (yellow)

@@ -9,6 +9,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include "forex_nav/forex_nav_data.h"
+#include "forex_nav/minco/trajectory.hpp"
 
 namespace forex_nav {
 
@@ -23,6 +24,7 @@ public:
   void initialize();
   
   // Plan navigation motion: select viewpoint and plan trajectory
+  // out_traj: if non-null, receives the continuous Trajectory<5> object for real-time p/v/a evaluation
   int planNavMotion(
     const Vector3d& pos, const Vector3d& vel, double yaw,
     const Vector3d& goal_pos,
@@ -30,7 +32,8 @@ public:
     std::vector<Vector3d>& path,
     std::vector<double>& yaws,
     std::vector<double>& times,
-    std::vector<Vector3d>& astar_path);  // Output A* path for visualization
+    std::vector<Vector3d>& astar_path,
+    Trajectory<5>* out_traj = nullptr);
 
   // Select best viewpoint using fuzzy A* (simplified version)
   int selectBestViewpoint(
@@ -70,7 +73,8 @@ public:
     double end_yaw,
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
-    std::vector<double>& traj_time);
+    std::vector<double>& traj_time,
+    Trajectory<5>* out_traj = nullptr);
 
   // Set parameters
   void setNavParam(const NavParam& param) { nav_param_ = param; }

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
@@ -27,7 +27,7 @@ class OdomPathPublisher:
         self.publish_rate = rospy.get_param('~publish_rate', 10.0)
         self.min_distance = rospy.get_param('~min_distance', 0.05)
         self.line_width = rospy.get_param('~line_width', 0.20)  # Marker thickness
-        self.max_speed = rospy.get_param('~max_speed', 4.0)  # For color scaling
+        self.max_speed = rospy.get_param('~max_speed', 2.8)  # For color scaling
         self.min_speed = rospy.get_param('~min_speed', 0.0)
         
         # Color settings (RGB)

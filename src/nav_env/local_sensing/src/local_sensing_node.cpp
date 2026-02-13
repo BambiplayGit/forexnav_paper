@@ -91,25 +91,23 @@ class LocalSensingNode {
     pnh.param<double>("fov_marker_scale", fov_marker_scale_, 0.6);
     pnh.param<double>("fov_marker_line_width", fov_marker_line_width_, 0.02);
 
-    // ---- 3D地图尺寸与虚拟相机内参 ----
-    if (enable_3d_occ_) {
-      gl_zl_ = -z_size / 2.0;
-      vox_w_ = (int)(x_size / voxel_res_);
-      vox_h_ = (int)(y_size / voxel_res_);
-      vox_d_ = (int)(z_size / voxel_res_);
+    // ---- 3D地图尺寸与虚拟相机内参 (始终初始化, 深度管线总是运行) ----
+    gl_zl_ = -z_size / 2.0;
+    vox_w_ = (int)(x_size / voxel_res_);
+    vox_h_ = (int)(y_size / voxel_res_);
+    vox_d_ = (int)(z_size / voxel_res_);
 
-      // 从水平/垂直FOV推算针孔相机内参
-      cam_fx_ = cam_width_ / (2.0 * std::tan(cam_h_fov_ / 2.0));
-      cam_fy_ = cam_height_ / (2.0 * std::tan(cam_v_fov_ / 2.0));
-      cam_cx_ = cam_width_ / 2.0;
-      cam_cy_ = cam_height_ / 2.0;
+    // 从水平/垂直FOV推算针孔相机内参
+    cam_fx_ = cam_width_ / (2.0 * std::tan(cam_h_fov_ / 2.0));
+    cam_fy_ = cam_height_ / (2.0 * std::tan(cam_v_fov_ / 2.0));
+    cam_cx_ = cam_width_ / 2.0;
+    cam_cy_ = cam_height_ / 2.0;
 
-      // 构建相机→机体变换矩阵 (含俯仰角)
-      buildCam02Body();
+    // 构建相机→机体变换矩阵 (含俯仰角)
+    buildCam02Body();
 
-      // 预计算膨胀半径对应的体素格数
-      inflate_r_voxels_ = (inflate_radius_ > 1e-6) ? (int)(inflate_radius_ / voxel_res_ + 0.5) : 0;
-    }
+    // 预计算膨胀半径对应的体素格数
+    inflate_r_voxels_ = (inflate_radius_ > 1e-6) ? (int)(inflate_radius_ / voxel_res_ + 0.5) : 0;
 
     // 预计算膨胀半径对应的2D栅格格数 (两种模式通用)
     inflate_r_2d_ = (inflate_radius_ > 1e-6) ? (int)(inflate_radius_ / occ_res_ + 0.5) : 0;
@@ -122,18 +120,16 @@ class LocalSensingNode {
     occ_pub_ = nh.advertise<nav_msgs::OccupancyGrid>("occupancy_grid", 1);
     occ_image_pub_ = nh.advertise<sensor_msgs::Image>("occupancy_grid_image", 1);
     cloud_pub_ = nh.advertise<sensor_msgs::PointCloud2>("cloud", 1);
+    // 3D occupancy (两种模式均发布)
+    occ3d_pub_ = nh.advertise<sensor_msgs::PointCloud2>("occupancy_3d", 1);
     // 膨胀版 (供规划器使用)
     if (inflate_radius_ > 1e-6) {
       occ_inflate_pub_ = nh.advertise<nav_msgs::OccupancyGrid>("occupancy_grid_inflate", 1);
+      occ3d_inflate_pub_ = nh.advertise<sensor_msgs::PointCloud2>("occupancy_3d_inflate", 1);
     }
 
-    // ---- 定时器 (根据模式选择) ----
-    if (enable_3d_occ_) {
-      // 新管线: 深度渲染 → 三维体素 → 二维切片
-      occ3d_pub_ = nh.advertise<sensor_msgs::PointCloud2>("occupancy_3d", 1);
-      if (inflate_radius_ > 1e-6) {
-        occ3d_inflate_pub_ = nh.advertise<sensor_msgs::PointCloud2>("occupancy_3d_inflate", 1);
-      }
+    // ---- 定时器: 深度管线始终运行 (发布 occupancy_3d) ----
+    {
       double timer_period = 1.0 / cam_sensing_rate;
       timer_depth_ = nh.createTimer(ros::Duration(timer_period),
                                      &LocalSensingNode::depthSensingCallback, this);
@@ -146,12 +142,14 @@ class LocalSensingNode {
       if (inflate_radius_ > 1e-6)
         ROS_INFO("[LocalSensing] inflate_radius=%.2f (%d voxels, %d 2d cells)",
                  inflate_radius_, inflate_r_voxels_, inflate_r_2d_);
-    } else {
-      // 旧管线: 2D雷达平扫
+    }
+
+    // ---- 2D模式: 同时运行2D平扫 (发布 occupancy_grid) ----
+    if (!enable_3d_occ_) {
       double timer_period = 1.0 / sensing_rate;
       timer_ = nh.createTimer(ros::Duration(timer_period),
                                &LocalSensingNode::sensingTimerCallback, this);
-      ROS_INFO("[LocalSensing] 2D scan: fov=%.2f rad max_range=%.1f", fov_angle_, max_range_);
+      ROS_INFO("[LocalSensing] 2D scan also running: fov=%.2f rad max_range=%.1f", fov_angle_, max_range_);
     }
 
     // FOV可视化 (两种模式均可用)
@@ -381,10 +379,11 @@ class LocalSensingNode {
       cloud_msg.header.frame_id = cloud_frame_id_;
       cloud_pub_.publish(cloud_msg);
     }
+
   }
 
   // ================================================================
-  //  新管线: 深度渲染 → 三维体素 → 二维切片
+  //  深度渲染管线: 深度图 → 三维体素 → occupancy_3d
   //  (enable_3d_occ=true 时替代2D平扫和旧3D光线追踪)
   // ================================================================
   void depthSensingCallback(const ros::TimerEvent&) {
@@ -415,28 +414,33 @@ class LocalSensingNode {
     pcl::PointCloud<pcl::PointXYZ> hit_cloud;
     buildVoxelsFromDepth(depth_buf, cam_pos, Rwc, hit_cloud);
 
-    // ---- 4. 发布三维体素地图 ----
+    // ---- 4. 发布三维体素地图 (始终发布) ----
     publish3DOccupancy();
 
-    // ---- 5. 三维体素切片 → 二维占据栅格 ----
-    publishSlicedOccupancyGrid();
-
-    // ---- 6. 发布膨胀版地图 (供规划器使用) ----
+    // ---- 5. 膨胀版3D体素 (始终发布) ----
     if (inflate_radius_ > 1e-6) {
       publish3DOccupancyInflated();
-      inflateAndPublish2DGrid(last_slice_grid_);
     }
 
-    // ---- 7. 发布命中点云 ----
-    if (publish_cloud_ && !hit_cloud.points.empty()) {
-      hit_cloud.width = hit_cloud.points.size();
-      hit_cloud.height = 1;
-      hit_cloud.is_dense = true;
-      sensor_msgs::PointCloud2 cloud_msg;
-      pcl::toROSMsg(hit_cloud, cloud_msg);
-      cloud_msg.header.stamp = last_odom_stamp_;
-      cloud_msg.header.frame_id = cloud_frame_id_;
-      cloud_pub_.publish(cloud_msg);
+    // ---- 6. 仅 enable_3d_occ 模式: 三维切片→二维栅格 + 点云发布 ----
+    //     (2D模式下, 2D栅格由 sensingTimerCallback 独立生成)
+    if (enable_3d_occ_) {
+      publishSlicedOccupancyGrid();
+
+      if (inflate_radius_ > 1e-6) {
+        inflateAndPublish2DGrid(last_slice_grid_);
+      }
+
+      if (publish_cloud_ && !hit_cloud.points.empty()) {
+        hit_cloud.width = hit_cloud.points.size();
+        hit_cloud.height = 1;
+        hit_cloud.is_dense = true;
+        sensor_msgs::PointCloud2 cloud_msg;
+        pcl::toROSMsg(hit_cloud, cloud_msg);
+        cloud_msg.header.stamp = last_odom_stamp_;
+        cloud_msg.header.frame_id = cloud_frame_id_;
+        cloud_pub_.publish(cloud_msg);
+      }
     }
   }
 
@@ -943,7 +947,7 @@ class LocalSensingNode {
   int cam_width_ = 320;
   int cam_height_ = 240;
   double cam_fx_, cam_fy_, cam_cx_, cam_cy_;    // 虚拟相机内参 (从FOV计算)
-  double depth_point_radius_ = 0.0873;          // 投影点膨胀系数
+  double depth_point_radius_ = 0.1;          // 投影点膨胀系数
   double slice_half_height_ = 0.5;              // 二维切片半高
   Eigen::Matrix4d cam02body_;                    // 相机→机体变换 (含俯仰)
   Eigen::Quaterniond robot_quat_ = Eigen::Quaterniond::Identity();  // 机体姿态四元数

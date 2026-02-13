@@ -1,0 +1,69 @@
+<launch>
+  <!-- FRTree + 四足动力学可视化：与 frtree_nav 相同的规划，但用 Champ 腿显示 -->
+  <arg name="max_vel" default="2.0" />
+  <arg name="max_acc" default="2.0" />
+  <arg name="map_x_size" default="132" />
+  <arg name="map_y_size" default="132" />
+  <arg name="planning_height" default="0.4" doc="Robot init z / planning height (meters)" />
+  <arg name="robot_type" default="zsl-1" doc="Robot type: zsl-1 (智身) or go2 (宇树)" />
+
+  <!-- ============== Base Environment (四足版) ============== -->
+  <!-- Provides: map_loader, odom simulator (with gait dynamics), local_sensing, odom path publisher -->
+  <include file="$(find nav_exp_env)/base_env/launch/nav_env_legged.launch">
+    <arg name="rviz" value="false" />
+    <arg name="use_click_pos_cmd" value="false" />
+    <arg name="map_x_size" value="$(arg map_x_size)" />
+    <arg name="map_y_size" value="$(arg map_y_size)" />
+    <arg name="planning_height" value="$(arg planning_height)" />
+    <arg name="robot_type" value="$(arg robot_type)" />
+  </include>
+
+  <!-- ============== Extra TFs for FRTree ============== -->
+  <!-- world -> map (identity, for hardcoded "map" frame refs in pop_planner) -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map"
+        args="0 0 0 0 0 0 world map" />
+
+  <!-- base_link -> base (identity, bridges nav_env's odom->base_link to pop_planner's odom->base) -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_base"
+        args="0 0 0 0 0 0 base_link base" />
+
+  <!-- base -> unitree_scan (identity, hardcoded TF lookup in local_decomp.cpp) -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_unitree_scan"
+        args="0 0 0 0 0 0 base unitree_scan" />
+
+  <!-- base -> camera_depth_optical_frame (identity, for local_map pointcloud sensor) -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_camera"
+        args="0 0 0 0 0 0 base camera_depth_optical_frame" />
+
+  <!-- ============== Point Cloud Relay ============== -->
+  <!-- pop_planner subscribes to /velodyne_points, nav_env publishes /local_sensing/cloud -->
+  <node pkg="topic_tools" type="relay" name="pointcloud_relay"
+        args="/local_sensing/cloud /velodyne_points" />
+
+  <!-- ============== FRTree Planner ============== -->
+  <!-- FRTree publishes /planning/pos_cmd as PoseStamped (position only),
+       remap it away so frtree_traj_cmd can publish PositionCommand (with PVA) instead -->
+  <node pkg="pop_planner" name="planner" type="pop_planner_node" output="screen"
+        launch-prefix="bash -c 'sleep 3; exec $0 $@' ">
+      <rosparam file="$(find pop_planner)/launch/config/pop_plan_fsm_param.yaml" command="load" />
+      <param name="plan_manager/lidar_link_name" value="base_link" />
+      <remap from="local_map/odometry/state_estimation" to="/odom"/>
+      <remap from="goal" to="/move_base_simple/goal"/>
+      <remap from="/planning/pos_cmd" to="/planning/frtree_raw_pos_cmd"/>
+  </node>
+
+  <!-- ============== FRTree Trajectory PVA Commander ============== -->
+  <!-- Subscribes to FRTree's raw ALTRO trajectory (/traj_pose_vis PoseArray),
+       applies trapezoidal velocity profile (0→v_max→0),
+       publishes PositionCommand with full PVA -->
+  <node pkg="nav_exp_env" name="frtree_traj_cmd" type="frtree_traj_cmd.py" output="screen">
+      <param name="max_vel" value="$(arg max_vel)" />
+      <param name="max_acc" value="$(arg max_acc)" />
+      <param name="traj_topic" value="/traj_pose_vis" />
+      <param name="fixed_z" value="$(arg planning_height)" />
+  </node>
+
+  <!-- ============== RViz (四足可视化) ============== -->
+  <node pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
+        args="-d $(find nav_exp_env)/frtree/config/frtree.rviz -f odom" />
+</launch>

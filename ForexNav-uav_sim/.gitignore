@@ -1,0 +1,20 @@
+# Catkin build generated directories
+build/
+devel/
+install/
+.catkin_tools/
+logs/
+
+# Catkin build generated files
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+Makefile
+CTestConfiguration.ini
+CTestCustom.cmake
+CTestTestfile.cmake
+catkin_generated/
+catkin_tools_prebuild/
+*.lock
+*.pyc
+__pycache__/

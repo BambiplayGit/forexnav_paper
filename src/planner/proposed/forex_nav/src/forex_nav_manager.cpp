@@ -69,7 +69,8 @@ int ForexNavManager::planNavMotion(
     std::vector<Vector3d>& path,
     std::vector<double>& yaws,
     std::vector<double>& times,
-    std::vector<Vector3d>& astar_path) {
+    std::vector<Vector3d>& astar_path,
+    Trajectory<5>* out_traj) {
   
   // Step 1: Select best viewpoint
   Vector3d selected_pos;
@@ -136,7 +137,7 @@ int ForexNavManager::planNavMotion(
     end_vel = selected_v_limit * dir_to_goal;
   }
   Vector3d start_acc = Vector3d::Zero();
-  generateMINCOTrajectory(temp_path, temp_yaws, vel, start_acc, yaw, end_vel, selected_yaw, path, yaws, times);
+  generateMINCOTrajectory(temp_path, temp_yaws, vel, start_acc, yaw, end_vel, selected_yaw, path, yaws, times, out_traj);
   
   return 0;  // SUCCESS
 }
@@ -431,7 +432,8 @@ void ForexNavManager::generateMINCOTrajectory(
     double end_yaw,
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
-    std::vector<double>& traj_time) {
+    std::vector<double>& traj_time,
+    Trajectory<5>* out_traj) {
   
   traj_pos.clear();
   traj_yaw.clear();
@@ -459,7 +461,8 @@ void ForexNavManager::generateMINCOTrajectory(
         nav_param_.traj_dt_,
         traj_pos,
         traj_yaw,
-        traj_time);
+        traj_time,
+        out_traj);
     
     if (success && !traj_pos.empty()) {
       std::cout << "[ForexNav] MINCO trajectory generated successfully: " 

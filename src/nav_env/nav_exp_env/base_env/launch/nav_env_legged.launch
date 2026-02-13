@@ -48,7 +48,7 @@
   </group>
 
   <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
-    <param name="publish_frequency" value="100" />
+    <param name="publish_frequency" value="300" />
   </node>
 
   <!-- 独立步态关节发布：CHAMP 风格 stance/swing 相位，Raibert 步幅匹配 -->

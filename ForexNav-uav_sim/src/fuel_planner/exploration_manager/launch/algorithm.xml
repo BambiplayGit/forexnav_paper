@@ -1,0 +1,309 @@
+<launch>
+  <arg name="map_size_x_"/>
+  <arg name="map_size_y_"/>
+  <arg name="map_size_z_"/>
+
+  <arg name="box_min_x"/>
+  <arg name="box_min_y"/>
+  <arg name="box_min_z"/>
+  <arg name="box_max_x"/>
+  <arg name="box_max_y"/>
+  <arg name="box_max_z"/>
+
+  <arg name="odometry_topic"/>
+  <arg name="sensor_pose_topic"/>
+  <arg name="depth_topic"/>
+  <arg name="cloud_topic"/>
+
+  <arg name="cx"/>
+  <arg name="cy"/>
+  <arg name="fx"/>
+  <arg name="fy"/>
+
+  <arg name="max_vel"/>
+  <arg name="max_acc"/>
+
+  <arg name="frontier_use_2d_mode" default="false"/>
+  <arg name="frontier_fixed_height_2d" default="0.4"/>
+  
+  <!-- Ackermann vehicle parameters (optional, defaults provided) -->
+  <arg name="frontend_planner_type" default="0"/>  <!-- 0: drone, 1: ackermann car -->
+  <arg name="car_width" default="1.9"/>
+  <arg name="car_length" default="4.88"/>
+  <arg name="car_wheelbase" default="2.85"/>
+  <arg name="car_max_steering_angle" default="45.0"/>
+  
+  <!-- Yaw control parameters -->
+  <arg name="align_yaw_angular_vel" default="0.5"/>  <!-- Fixed angular velocity for alignment (rad/s) -->
+  <arg name="align_yaw_tolerance" default="0.1"/>  <!-- Yaw alignment tolerance (rad) -->
+  <arg name="enable_align_yaw" default="true"/>  <!-- Enable yaw alignment -->
+  
+  <!-- Viewpoint selection mode -->
+  <arg name="use_historical_viewpoints" default="true"/>  <!-- If true, use historical_viewpoints_ for planning; if false, use current viewpoints -->
+
+  <!-- main node -->
+  <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen">
+    <remap from ="/odom_world" to="$(arg odometry_topic)"/>
+    <remap from ="/map_ros/pose"   to = "$(arg sensor_pose_topic)"/> 
+    <remap from ="/map_ros/depth" to = "$(arg depth_topic)"/>
+    <remap from ="/map_ros/cloud" to="$(arg cloud_topic)"/>
+
+    <param name="sdf_map/resolution"      value="0.1" /> 
+    <param name="sdf_map/map_size_x"   value="$(arg map_size_x_)" /> 
+    <param name="sdf_map/map_size_y"   value="$(arg map_size_y_)" /> 
+    <param name="sdf_map/map_size_z"   value="$(arg map_size_z_)" /> 
+    <!-- <param name="sdf_map/obstacles_inflation"     value="0.099" />  -->
+    <param name="sdf_map/obstacles_inflation"     value="0.25" /> 
+    <param name="sdf_map/local_bound_inflate"    value="0.5"/>
+    <param name="sdf_map/local_map_margin" value="100"/>
+    <param name="sdf_map/ground_height"        value="-0.1"/>
+    <param name="sdf_map/default_dist"        value="0.0"/>
+    
+    <param name="sdf_map/p_hit"  value="0.65"/>
+    <param name="sdf_map/p_miss" value="0.35"/>
+    <param name="sdf_map/p_min"  value="0.12"/>
+    <param name="sdf_map/p_max"  value="0.90"/>
+    <param name="sdf_map/p_occ"  value="0.80"/>
+    <param name="sdf_map/min_ray_length" value="0.1"/>
+    <param name="sdf_map/max_ray_length" value="9.5"/>
+    <param name="sdf_map/virtual_ceil_height"   value="-10"/>
+    <param name="sdf_map/optimistic" value="false" type="bool"/>
+    <param name="sdf_map/signed_dist" value="false" type="bool"/>
+    <param name="sdf_map/box_min_x" value="$(arg box_min_x)" type="double"/>
+    <param name="sdf_map/box_min_y" value="$(arg box_min_y)" type="double"/>
+    <param name="sdf_map/box_min_z" value="$(arg box_min_z)" type="double"/>
+    <param name="sdf_map/box_max_x" value="$(arg box_max_x)" type="double"/>
+    <param name="sdf_map/box_max_y" value="$(arg box_max_y)" type="double"/>
+    <param name="sdf_map/box_max_z" value="$(arg box_max_z)" type="double"/>
+
+    <param name="map_ros/cx" value="$(arg cx)"/>
+    <param name="map_ros/cy" value="$(arg cy)"/>
+    <param name="map_ros/fx" value="$(arg fx)"/>
+    <param name="map_ros/fy" value="$(arg fy)"/>
+    <param name="map_ros/depth_filter_maxdist"   value="30.0"/>
+    <param name="map_ros/depth_filter_mindist"   value="0.1"/>
+    <param name="map_ros/depth_filter_margin"    value="2"/>
+    <param name="map_ros/k_depth_scaling_factor" value="1000.0"/>
+    <param name="map_ros/skip_pixel" value="2"/>
+    <param name="map_ros/esdf_slice_height" value="0.3"/>
+    <param name="map_ros/visualization_truncate_height"   value="1.8"/>
+    <param name="map_ros/visualization_truncate_low"   value="-2.0"/>
+    <param name="map_ros/show_occ_time"  value="false"/>
+    <param name="map_ros/show_esdf_time" value="false"/>
+    <param name="map_ros/show_all_map" value="true"/>
+    <param name="map_ros/frame_id"      value="world"/>
+
+    <!-- Fsm -->
+    <param name="fsm/thresh_replan1" value="0.5" type="double"/>
+    <param name="fsm/thresh_replan2" value="0.5" type="double"/>
+    <param name="fsm/thresh_replan3" value="1.5" type="double"/>
+
+    <!-- <param name="fsm/thresh_replan1" value="0.00001" type="double"/> -->
+    <!-- <param name="fsm/thresh_replan2" value="100.0" type="double"/> -->
+    <!-- <param name="fsm/thresh_replan3" value="0.1" type="double"/> -->
+    <param name="fsm/replan_time" value="0.200" type="double"/>
+    
+    <!-- Yaw control params -->
+    <param name="fsm/align_yaw_angular_vel" value="$(arg align_yaw_angular_vel)" type="double"/>
+    <param name="fsm/align_yaw_tolerance" value="$(arg align_yaw_tolerance)" type="double"/>
+    <param name="fsm/enable_align_yaw" value="$(arg enable_align_yaw)" type="bool"/>
+
+    <!-- Exploration manager -->
+
+    <param name="exploration/refine_local" value="true" type="bool"/>
+    <param name="exploration/refined_num" value="7" type="int"/>
+    <param name="exploration/refined_radius" value="10.0" type="double"/>
+    <param name="exploration/max_decay" value="0.8" type="double"/>
+    <param name="exploration/top_view_num" value="15" type="int"/>
+    <param name="exploration/vm" value="$(eval 1.0 * arg('max_vel'))" type="double"/>
+    <param name="exploration/am" value="$(eval 1.0 * arg('max_acc'))" type="double"/>
+    <param name="exploration/yd" value="$(eval 60 * 3.1415926 / 180.0)" type="double"/>
+    <param name="exploration/ydd" value="$(eval 90 * 3.1415926 / 180.0)" type="double"/>
+    <param name="exploration/w_dir" value="1.5" type="double"/>
+    <param name="exploration/tsp_dir" value="$(find lkh_tsp_solver)/resource" type="string"/>
+    <param name="exploration/relax_time" value="1.0" type="double"/>
+    <param name="exploration/use_fuzzy_astar" value="true" type="bool"/>
+    <param name="exploration/w_dist" value="0.1" type="double"/>
+    <param name="exploration/w_pred" value="1.0" type="double"/>
+    
+    <!-- Viewpoint filtering parameters -->
+    <param name="exploration/enable_ellipse_filter" value="true" type="bool"/>
+    <param name="exploration/ellipse_major_factor" value="2.5" type="double"/>
+    <param name="exploration/ellipse_minor_factor" value="1.2" type="double"/>
+    <param name="exploration/max_filtered_viewpoints" value="0" type="int"/>
+    
+    <!-- Viewpoint selection mode -->
+    <param name="exploration/use_historical_viewpoints" value="$(arg use_historical_viewpoints)" type="bool"/>
+    <param name="frontier/cluster_min" value="10" type="int"/>
+    <param name="frontier/cluster_size_xy" value="0.5" type="double"/>
+    <param name="frontier/cluster_size_z" value="10.0" type="double"/>
+    <param name="frontier/min_candidate_dist" value="0.75" type="double"/>
+    <param name="frontier/min_candidate_clearance" value="0.21" type="double"/>
+    <param name="frontier/candidate_dphi" value="$(eval 15 * 3.1415926 / 180.0)" type="double"/>
+    <param name="frontier/candidate_rnum" value="5" type="int"/>
+    <param name="frontier/candidate_rmin" value="0.5" type="double"/>
+    <param name="frontier/candidate_rmax" value="1.0" type="double"/>
+    <param name="frontier/down_sample" value="3" type="int"/>;
+    <param name="frontier/min_visib_num" value="5" type="int"/>;
+    <param name="frontier/min_view_finish_fraction" value="0.2" type="double"/>;
+    <param name="frontier/use_2d_mode" value="$(arg frontier_use_2d_mode)" type="bool"/>
+    <param name="frontier/fixed_height_2d" value="$(arg frontier_fixed_height_2d)" type="double"/>
+
+    <!-- Perception utils -->
+    <param name="perception_utils/top_angle" value="0.56125" type="double"/>;
+    <param name="perception_utils/left_angle" value="0.69222" type="double"/>;
+    <param name="perception_utils/right_angle" value="0.68901" type="double"/>;
+    <param name="perception_utils/max_dist" value="9.5" type="double"/>;
+    <param name="perception_utils/vis_dist" value="1.0" type="double"/>;
+
+
+    <param name="heading_planner/yaw_diff" value="$(eval 30 * 3.1415926 / 180.0)" type="double"/>
+    <param name="heading_planner/half_vert_num" value="5" type="int"/>
+    <param name="heading_planner/lambda1" value="2.0" type="double"/>
+    <param name="heading_planner/lambda2" value="1.0" type="double"/>
+    <param name="heading_planner/max_yaw_rate" value="$(eval 10 * 3.1415926 / 180.0)" type="double"/>
+    <param name="heading_planner/w" value="20000.0" type="double"/>
+    <param name="heading_planner/weight_type" value="1" type="double"/>
+
+  <!-- planner manager -->
+    <!-- <param name="manager/max_vel" value="$(arg max_vel)" type="double"/> -->
+    <param name="manager/max_vel" value="$(arg max_vel)" type="double"/>
+    <param name="manager/max_acc" value="$(arg max_acc)" type="double"/>
+    <param name="manager/max_jerk" value="4" type="double"/>
+    <param name="manager/dynamic_environment" value="0" type="int"/>
+    <param name="manager/local_segment_length" value="3.0" type="double"/>
+    <param name="manager/clearance_threshold" value="0.2" type="double"/>
+    <param name="manager/control_points_distance" value="0.35" type="double"/>
+    <param name="manager/use_geometric_path" value="true" type="bool"/>
+    <param name="manager/use_kinodynamic_path" value="true" type="bool"/>
+    <param name="manager/use_topo_path" value="true" type="bool"/>
+    <param name="manager/use_optimization" value="true" type="bool"/>
+    <param name="manager/use_active_perception" value="true" type="bool"/>
+    <param name="manager/min_time" value="true" type="bool"/>
+    
+    <!-- Frontend planner selection: 0=Standard Kinodynamic A* (drone), 1=Ackermann (car) -->
+    <param name="manager/frontend_planner_type" value="$(arg frontend_planner_type)" type="int"/>
+    
+    <!-- Vehicle parameters (for Ackermann kinodynamic planning) -->
+    <param name="vehicle/car_width" value="$(arg car_width)" type="double"/>
+    <param name="vehicle/car_length" value="$(arg car_length)" type="double"/>
+    <param name="vehicle/car_wheelbase" value="$(arg car_wheelbase)" type="double"/>
+    <param name="vehicle/car_max_steering_angle" value="$(arg car_max_steering_angle)" type="double"/>
+    
+    <!-- MINCO backend configuration -->
+    <param name="manager/use_minco_backend" value="true" type="bool"/>
+    
+    <!-- Debug mode: publish A*, B-spline, MINCO trajectories for comparison -->
+    <param name="manager/debug_compare_mode" value="false" type="bool"/>
+    
+    <!-- Rectangle collision detection parameters (for legged robots) -->
+    <param name="manager/collision_rect_length" value="0.5" type="double"/>  <!-- Length of collision detection rectangle (m) -->
+    <param name="manager/collision_rect_width" value="0.3" type="double"/>     <!-- Width of collision detection rectangle (m) -->
+    <param name="manager/collision_check_interval" value="0.3" type="double"/>  <!-- Time interval for collision checking (s) -->
+    
+    <!-- GCOPTER parameters for MINCO -->
+    <!-- SAFETY-FOCUSED parameters to prevent wall collisions -->
+    
+    <!-- Critical safety parameters - LARGER SAFETY MARGINS -->
+    <param name="gcopter/DilateRadiusSoft" value="0.35" type="double"/>  <!-- INCREASED: Larger safety margin (was 0.2) -->
+    <param name="gcopter/DilateRadiusHard" value="0.15" type="double"/>  <!-- INCREASED: Harder constraint (was 0.1) -->
+    
+    <!-- Velocity and dynamics limits - MORE CONSERVATIVE -->
+    <param name="gcopter/MaxVelMag" value="0.35" type="double"/>  <!-- FIXED: Very conservative velocity (not using arg) -->
+    <param name="gcopter/MaxVelY" value="0.2" type="double"/>  <!-- Maximum Y-direction (lateral) velocity. -1 to disable limit -->
+    <param name="gcopter/maxBdrMag" value="8.0" type="double"/>  <!-- DECREASED: More conservative boundary (was 10.0) -->
+    <param name="gcopter/MaxTiltAngle" value="0.8" type="double"/>  <!-- DECREASED: Less aggressive tilt (was 1.0) -->
+    <param name="gcopter/MinThrust" value="2.0" type="double"/>
+    <param name="gcopter/MaxThrust" value="18.0" type="double"/>  <!-- DECREASED: More conservative (was 20.0) -->
+    
+    <!-- Physical parameters -->
+    <param name="gcopter/VehicleMass" value="1.0" type="double"/>
+    <param name="gcopter/GravAcc" value="9.8" type="double"/>
+    <param name="gcopter/HorizDrag" value="0.0" type="double"/>
+    <param name="gcopter/VertDrag" value="0.0" type="double"/>
+    <param name="gcopter/ParasDrag" value="0.0" type="double"/>
+    <param name="gcopter/SpeedEps" value="1.0" type="double"/>
+    
+    <!-- Optimization weights - BALANCED FOR SAFETY AND EFFICIENCY -->
+    <param name="gcopter/WeightT" value="10.0" type="double"/>  <!-- DECREASED from 100: Balance time and safety -->
+    <param name="gcopter/WeightSafeT" value="20.0" type="double"/>  <!-- DOUBLED: Safety weight increased! -->
+    
+    <!-- Penalty weights - CRITICAL FOR COLLISION AVOIDANCE -->
+    <param name="gcopter/ChiVec" value="[50.0, 50.0, 50.0, 50.0, 50.0]" type="yaml"/>  <!-- INCREASED 5x: Strong obstacle avoidance! -->
+    
+    <!-- Numerical parameters - MORE CAREFUL SAMPLING -->
+    <param name="gcopter/SmoothingEps" value="0.00001" type="double"/>
+    <param name="gcopter/IntegralIntervs" value="8" type="int"/>  <!-- INCREASED: More sampling for safety checks -->
+    <param name="gcopter/RelCostTol" value="0.001" type="double"/>
+    <param name="gcopter/MaxCorridorSize" value="5.0" type="double"/>  <!-- DECREASED: Smaller corridors = safer (was 5.0) -->
+
+  <!-- kinodynamic path searching (for standard drone/holonomic robots) -->
+    <param name="search/max_tau" value="0.8" type="double"/>
+    <param name="search/init_max_tau" value="1.0" type="double"/>
+    <param name="search/max_vel" value="$(arg max_vel)" type="double"/>
+    <param name="search/vel_margin" value="0.25" type="double"/>
+    <param name="search/max_acc" value="$(arg max_acc)" type="double"/>
+    <param name="search/w_time" value="10.0" type="double"/>
+    <param name="search/horizon" value="10.0" type="double"/>
+    <param name="search/lambda_heu" value="10.0" type="double"/>
+    <param name="search/resolution_astar" value="0.025" type="double"/>
+    <param name="search/time_resolution" value="0.8" type="double"/>
+    <param name="search/margin" value="0.2" type="double"/>
+    <param name="search/allocate_num" value="100000" type="int"/>
+    <param name="search/check_num" value="10" type="int"/>
+    <param name="search/optimistic" value="false" type="bool"/>
+    
+    <!-- Ackermann kinodynamic path searching (for car-like vehicles) -->
+    <param name="search/yaw_resolution" value="0.3" type="double"/>
+    <param name="search/max_cur" value="0.35" type="double"/>
+    <param name="search/step_arc" value="0.9" type="double"/>
+    <param name="search/checkl" value="0.2" type="double"/>
+    <param name="search/traj_forward_penalty" value="1.0" type="double"/>
+    <param name="search/traj_back_penalty" value="2.5" type="double"/>
+    <param name="search/traj_gear_switch_penalty" value="15.0" type="double"/>
+    <param name="search/traj_steer_penalty" value="0.5" type="double"/>
+    <param name="search/traj_steer_change_penalty" value="0.0" type="double"/>
+    <param name="search/fixed_height_2d" value="0.5" type="double"/>  <!-- Fixed Z height for 2D planning -->
+    <param name="vehicle/car_front_suspension" value="0.93" type="double"/>
+    <param name="vehicle/car_rear_suspension" value="1.1" type="double"/>
+    <param name="vehicle/car_d_cr" value="1.015" type="double"/>
+
+    <param name="astar/lambda_heu" value="10000.0" type="double"/>
+    <param name="astar/resolution_astar" value="0.2" type="double"/>
+    <param name="astar/allocate_num" value="1000000" type="int"/>
+    <param name="astar/max_search_time" value="0.001" type="double"/>
+
+  <!-- trajectory optimization -->
+    <param name="optimization/ld_smooth" value="20.0" type="double"/>
+    <param name="optimization/ld_dist" value="10.0" type="double"/>
+    <param name="optimization/ld_feasi" value="2.0" type="double"/>
+    <param name="optimization/ld_start" value="100.0" type="double"/>
+    <param name="optimization/ld_end" value="0.5" type="double"/>
+    <param name="optimization/ld_guide" value="1.5" type="double"/>
+    <param name="optimization/ld_waypt" value="0.3" type="double"/>
+    <param name="optimization/ld_view" value="0.0" type="double"/>
+    <param name="optimization/ld_time" value="1.0" type="double"/>
+    <param name="optimization/dist0" value="0.7" type="double"/>
+    <param name="optimization/max_vel" value="$(arg max_vel)" type="double"/>
+    <param name="optimization/max_acc" value="$(arg max_acc)" type="double"/>
+    <param name="optimization/algorithm1" value="15" type="int"/>
+    <param name="optimization/algorithm2" value="11" type="int"/>
+    <param name="optimization/max_iteration_num1" value="2" type="int"/>
+    <param name="optimization/max_iteration_num2" value="2000" type="int"/>
+    <param name="optimization/max_iteration_num3" value="200" type="int"/>
+    <param name="optimization/max_iteration_num4" value="200" type="int"/>
+
+    <param name="optimization/max_iteration_time1" value="0.0001" type="double"/>
+    <param name="optimization/max_iteration_time2" value="0.005" type="double"/>
+    <param name="optimization/max_iteration_time3" value="0.003" type="double"/>
+    <param name="optimization/max_iteration_time4" value="0.003" type="double"/>
+    <param name="bspline/limit_vel" value="$(arg max_vel)" type="double"/>
+    <param name="bspline/limit_acc" value="$(arg max_acc)" type="double"/>
+    <param name="bspline/limit_ratio" value="1.1" type="double"/>
+    <param name="bspline/limit_vel" value="$(arg max_vel)" type="double"/>
+    <param name="bspline/limit_acc" value="$(arg max_acc)" type="double"/>
+    <param name="bspline/limit_ratio" value="1.1" type="double"/>
+
+  </node>
+
+</launch>

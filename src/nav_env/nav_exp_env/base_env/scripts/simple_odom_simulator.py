@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
@@ -25,6 +25,7 @@ import random
 import tf2_ros
 from geometry_msgs.msg import TransformStamped, PoseStamped, Twist
 from nav_msgs.msg import Odometry
+from quadrotor_msgs.msg import PositionCommand
 
 
 class SimpleOdomSimulator:
@@ -40,17 +41,20 @@ class SimpleOdomSimulator:
         self.init_yaw = rospy.get_param('~init_yaw', 0.0)
         self.publish_freq = rospy.get_param('~publish_frequency', 200.0)
         
-        # Dynamics parameters (与规划算法约束一致)
-        self.max_vel = rospy.get_param('~max_vel', 4.0)           # 最大速度 m/s
-        self.max_acc = rospy.get_param('~max_acc', 2.0)           # 最大加速度 m/s^2
+        # Dynamics parameters (控制器余量 > 规划器约束，给 PD 校正留空间)
+        self.max_vel = rospy.get_param('~max_vel', 2.0)           # 最大速度 m/s
+        self.max_acc = rospy.get_param('~max_acc', 4.0)           # 最大加速度 m/s^2 (规划器用2.0，控制器留2倍余量)
         self.max_yaw_rate = rospy.get_param('~max_yaw_rate', 2.09) # 最大角速度 rad/s
         self.max_yaw_acc = rospy.get_param('~max_yaw_acc', 4.0)   # 最大角加速度 rad/s^2
         
-        # PD controller gains (控制器增益)
-        self.kp_pos = rospy.get_param('~kp_pos', 4.0)    # 位置P增益 (四足响应较慢)
-        self.kd_pos = rospy.get_param('~kd_pos', 2.5)    # 位置D增益 (阻尼)
-        self.kp_yaw = rospy.get_param('~kp_yaw', 3.0)    # 航向P增益
-        self.kd_yaw = rospy.get_param('~kd_yaw', 2.0)    # 航向D增益
+        # PD controller gains (控制器增益，参考 SO3 控制器)
+        self.kp_pos = rospy.get_param('~kp_pos', 5.0)    # 位置P增益
+        self.kd_pos = rospy.get_param('~kd_pos', 4.0)    # 位置D增益 (阻尼，防冲过头)
+        self.kp_yaw = rospy.get_param('~kp_yaw', 4.0)    # 航向P增益
+        self.kd_yaw = rospy.get_param('~kd_yaw', 3.0)    # 航向D增益
+        
+        # Feedforward scaling (前馈缩放，留余量给 PD 校正)
+        self.ff_acc_scale = rospy.get_param('~ff_acc_scale', 0.8)  # 加速度前馈缩放 (0~1)
         
         # ===== 四足机器人特有参数 =====
         # 步态参数
@@ -88,9 +92,13 @@ class SimpleOdomSimulator:
         self.target_y = self.init_y
         self.target_yaw = self.init_yaw
         
-        # 目标速度估计（从连续 pos_cmd 差分 + 平滑，用于 PD 速度前馈）
+        # 目标速度和加速度（直接从 PositionCommand 获取，用于前馈控制）
         self.target_vel_x = 0.0
         self.target_vel_y = 0.0
+        self.target_acc_x = 0.0
+        self.target_acc_y = 0.0
+        self.target_yaw_dot = 0.0
+        self.use_position_command = False  # True when receiving PositionCommand
         
         # Commanded velocity from cmd_vel (for velocity control mode)
         self.cmd_vel_x = 0.0
@@ -117,10 +125,10 @@ class SimpleOdomSimulator:
         
     def setup_ros_interface(self):
         """Setup ROS publishers and subscribers"""
-        # Subscribe to position command
+        # Subscribe to position command (PositionCommand with p/v/a/yaw/yaw_dot)
         self.pos_cmd_sub = rospy.Subscriber(
             '/planning/pos_cmd', 
-            PoseStamped, 
+            PositionCommand, 
             self.position_cmd_callback,
             queue_size=1
         )
@@ -157,33 +165,23 @@ class SimpleOdomSimulator:
         self.last_cmd_vel_time = rospy.Time.now()
         
     def position_cmd_callback(self, msg):
-        """Callback for position commands - update target position"""
-        new_target_x = msg.pose.position.x
-        new_target_y = msg.pose.position.y
+        """Callback for PositionCommand - extract position, velocity, acceleration, yaw, yaw_dot"""
+        self.target_x = msg.position.x
+        self.target_y = msg.position.y
         
-        # 从连续 pos_cmd 估计目标速度（用于 PD 速度前馈）
-        if self.last_pos_cmd_time is not None:
-            dt_cmd = (rospy.Time.now() - self.last_pos_cmd_time).to_sec()
-            if dt_cmd > 1e-6 and dt_cmd < 1.0:
-                raw_tvx = (new_target_x - self.target_x) / dt_cmd
-                raw_tvy = (new_target_y - self.target_y) / dt_cmd
-                # 限幅到物理极限
-                raw_tvx = self.clamp(raw_tvx, -self.max_vel, self.max_vel)
-                raw_tvy = self.clamp(raw_tvy, -self.max_vel, self.max_vel)
-                # 一阶平滑，防止轨迹切换时的尖峰
-                alpha = 0.5
-                self.target_vel_x = alpha * raw_tvx + (1.0 - alpha) * self.target_vel_x
-                self.target_vel_y = alpha * raw_tvy + (1.0 - alpha) * self.target_vel_y
+        # Directly use trajectory velocity (no more noisy differentiation)
+        self.target_vel_x = msg.velocity.x
+        self.target_vel_y = msg.velocity.y
         
-        self.target_x = new_target_x
-        self.target_y = new_target_y
+        # Directly use trajectory acceleration (feedforward)
+        self.target_acc_x = msg.acceleration.x
+        self.target_acc_y = msg.acceleration.y
         
-        # Extract target yaw from quaternion
-        q = msg.pose.orientation
-        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.target_yaw = math.atan2(siny_cosp, cosy_cosp)
+        # Yaw and yaw rate
+        self.target_yaw = msg.yaw
+        self.target_yaw_dot = msg.yaw_dot
         
+        self.use_position_command = True
         self.last_pos_cmd_time = rospy.Time.now()
     
     def normalize_angle(self, angle):
@@ -233,7 +231,11 @@ class SimpleOdomSimulator:
         self.publish_odometry_and_tf(current_time)
     
     def update_position_tracking(self, dt):
-        """PD controller for position tracking with quadruped dynamics"""
+        """PD + feedforward controller for position tracking (inspired by UAV SO3 controller)
+        
+        Control law: acc = kp*(p_des - p) + kd*(v_des - v) + a_des
+        This mirrors the UAV's geometric controller but adapted for 2D ground robot.
+        """
         # Position error
         err_x = self.target_x - self.pos_x
         err_y = self.target_y - self.pos_y
@@ -246,32 +248,14 @@ class SimpleOdomSimulator:
         turn_penalty = 1.0 - (1.0 - self.turn_speed_factor) * min(1.0, turn_rate / self.max_yaw_rate)
         effective_max_vel = self.max_vel * turn_penalty
         
-        # PD control + 沿轨迹方向速度前馈
-        # 前馈只作用在沿轨迹方向（维持速度），横向保持纯 PD（保证跟踪精度）
-        kff = self.kd_pos * 0.4
-        tv_mag = math.sqrt(self.target_vel_x**2 + self.target_vel_y**2)
-        if tv_mag > 0.1:
-            # 沿轨迹方向单位向量
-            tvx_n = self.target_vel_x / tv_mag
-            tvy_n = self.target_vel_y / tv_mag
-            # 分解误差和速度到 沿轨迹/横向
-            err_along = err_x * tvx_n + err_y * tvy_n
-            err_cross = -err_x * tvy_n + err_y * tvx_n
-            vel_along = self.vel_x * tvx_n + self.vel_y * tvy_n
-            vel_cross = -self.vel_x * tvy_n + self.vel_y * tvx_n
-            # 沿轨迹：PD + 前馈（维持速度）
-            # 前馈只在误差同向时生效（机器人在目标后方），防止冲过目标后刹不住
-            ff = kff * tv_mag if err_along > 0.0 else 0.0
-            acc_along = self.kp_pos * err_along - self.kd_pos * vel_along + ff
-            # 横向：纯 PD（精确跟踪）
-            acc_cross = self.kp_pos * err_cross - self.kd_pos * vel_cross
-            # 转回世界坐标
-            acc_x = acc_along * tvx_n - acc_cross * tvy_n
-            acc_y = acc_along * tvy_n + acc_cross * tvx_n
-        else:
-            # 低速时纯 PD，无前馈
-            acc_x = self.kp_pos * err_x - self.kd_pos * self.vel_x
-            acc_y = self.kp_pos * err_y - self.kd_pos * self.vel_y
+        # PD + scaled acceleration feedforward (like UAV: kp*(p_des-p) + kv*(v_des-v) + ff*a_des)
+        # ff_acc_scale < 1.0 reserves headroom for PD corrections within max_acc budget
+        acc_x = (self.kp_pos * err_x
+                 + self.kd_pos * (self.target_vel_x - self.vel_x)
+                 + self.ff_acc_scale * self.target_acc_x)
+        acc_y = (self.kp_pos * err_y
+                 + self.kd_pos * (self.target_vel_y - self.vel_y)
+                 + self.ff_acc_scale * self.target_acc_y)
         
         # Limit acceleration magnitude
         acc_mag = math.sqrt(acc_x * acc_x + acc_y * acc_y)
@@ -295,8 +279,9 @@ class SimpleOdomSimulator:
         self.pos_x += self.delayed_vel_x * dt
         self.pos_y += self.delayed_vel_y * dt
         
-        # PD control for yaw
-        yaw_acc = self.kp_yaw * err_yaw - self.kd_yaw * self.omega_z
+        # Yaw: PD + yaw_dot feedforward
+        yaw_acc = (self.kp_yaw * err_yaw
+                   + self.kd_yaw * (self.target_yaw_dot - self.omega_z))
         yaw_acc = self.clamp(yaw_acc, -self.max_yaw_acc, self.max_yaw_acc)
         
         # Update angular velocity
@@ -308,16 +293,26 @@ class SimpleOdomSimulator:
         self.yaw = self.normalize_angle(self.yaw)
     
     def update_velocity_control(self, dt):
-        """Velocity control mode with quadruped dynamics"""
+        """Velocity control mode with quadruped dynamics
+        
+        /cmd_vel 是 body frame (base_link): x=前进, y=左平移, angular.z=左转
+        内部 vel_x/vel_y 是 world frame，这里做 body → world 转换
+        """
         # 四足特性：转弯时降低最大速度
         turn_rate = abs(self.omega_z)
         turn_penalty = 1.0 - (1.0 - self.turn_speed_factor) * min(1.0, turn_rate / self.max_yaw_rate)
         effective_max_vel = self.max_vel * turn_penalty
         
-        # Target velocities from cmd_vel
-        target_vel_x = self.clamp(self.cmd_vel_x, -effective_max_vel, effective_max_vel)
-        target_vel_y = self.clamp(self.cmd_vel_y, -effective_max_vel, effective_max_vel)
+        # Clamp body-frame cmd_vel
+        body_vx = self.clamp(self.cmd_vel_x, -effective_max_vel, effective_max_vel)
+        body_vy = self.clamp(self.cmd_vel_y, -effective_max_vel, effective_max_vel)
         target_omega = self.clamp(self.cmd_omega_z, -self.max_yaw_rate, self.max_yaw_rate)
+        
+        # Body frame → World frame
+        cos_yaw = math.cos(self.yaw)
+        sin_yaw = math.sin(self.yaw)
+        target_vel_x = cos_yaw * body_vx - sin_yaw * body_vy
+        target_vel_y = sin_yaw * body_vx + cos_yaw * body_vy
         
         # Accelerate towards target velocity with limits
         vel_err_x = target_vel_x - self.vel_x

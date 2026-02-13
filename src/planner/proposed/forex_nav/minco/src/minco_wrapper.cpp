@@ -53,7 +53,8 @@ bool MincoWrapper::generateTrajectory(
     double traj_dt,
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
-    std::vector<double>& traj_time) {
+    std::vector<double>& traj_time,
+    Trajectory<5>* out_traj) {
     
     if (waypoints.size() < 2) {
         std::cout << "[MincoWrapper] Error: Need at least 2 waypoints, got " << waypoints.size() << std::endl;
@@ -80,7 +81,7 @@ bool MincoWrapper::generateTrajectory(
         return generateFallbackTrajectory(
             actual_waypoints, start_vel, start_acc, start_yaw,
             end_vel, end_yaw, max_vel, max_acc, traj_dt,
-            traj_pos, traj_yaw, traj_time);
+            traj_pos, traj_yaw, traj_time, out_traj);
     }
     
     std::vector<AABB2D> corridors;
@@ -90,7 +91,7 @@ bool MincoWrapper::generateTrajectory(
         return generateFallbackTrajectory(
             actual_waypoints, start_vel, start_acc, start_yaw,
             end_vel, end_yaw, max_vel, max_acc, traj_dt,
-            traj_pos, traj_yaw, traj_time);
+            traj_pos, traj_yaw, traj_time, out_traj);
     }
     
     last_corridors_ = corridors;
@@ -134,8 +135,11 @@ bool MincoWrapper::generateTrajectory(
         return generateFallbackTrajectory(
             actual_waypoints, start_vel, start_acc, start_yaw,
             end_vel, end_yaw, max_vel, max_acc, traj_dt,
-            traj_pos, traj_yaw, traj_time);
+            traj_pos, traj_yaw, traj_time, out_traj);
     }
+    
+    // Output continuous trajectory object for real-time evaluation (p/v/a)
+    if (out_traj) *out_traj = traj;
     
     sampleTrajectory(traj, traj_dt, start_yaw, end_yaw, traj_pos, traj_yaw, traj_time);
     
@@ -228,7 +232,8 @@ bool MincoWrapper::generateFallbackTrajectory(
     double traj_dt,
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
-    std::vector<double>& traj_time) {
+    std::vector<double>& traj_time,
+    Trajectory<5>* out_traj) {
     
     std::cout << "[MincoWrapper] Using fallback trajectory generation (no optimization)" << std::endl;
     
@@ -242,7 +247,7 @@ bool MincoWrapper::generateFallbackTrajectory(
         }
         return generateFallbackTrajectory(actual_waypoints, start_vel, start_acc, start_yaw,
                                           end_vel, end_yaw, max_vel, 2.0, traj_dt,
-                                          traj_pos, traj_yaw, traj_time);
+                                          traj_pos, traj_yaw, traj_time, out_traj);
     }
     
     Eigen::Matrix3Xd inPs(3, N - 1);
@@ -278,6 +283,9 @@ bool MincoWrapper::generateFallbackTrajectory(
         std::cout << "[MincoWrapper] Fallback MINCO failed" << std::endl;
         return false;
     }
+    
+    // Also output continuous trajectory from fallback path
+    if (out_traj) *out_traj = traj;
     
     sampleTrajectory(traj, traj_dt, start_yaw, end_yaw, traj_pos, traj_yaw, traj_time);
     

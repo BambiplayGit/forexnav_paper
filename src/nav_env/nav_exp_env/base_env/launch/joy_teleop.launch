@@ -1,0 +1,68 @@
+<launch>
+  <!--
+    手柄遥操作节点 (独立 launch，可搭配任意导航环境使用)
+    
+    启动内容:
+      1. joy_node        — 读取手柄硬件 → /joy
+      2. joy_teleop.py   — /joy → /cmd_vel (body frame: x=前进, y=左平移, angular.z=左转)
+    
+    使用方法 (单独启动，搭配其他 launch):
+      roslaunch nav_exp_env joy_teleop.launch
+      roslaunch nav_exp_env joy_teleop.launch joy_dev:=/dev/input/js1
+      roslaunch nav_exp_env joy_teleop.launch max_linear_vel:=1.0
+
+    示例组合:
+      终端1: roslaunch nav_exp_env nav_env_legged.launch use_click_pos_cmd:=false
+      终端2: roslaunch nav_exp_env joy_teleop.launch
+  -->
+
+  <!-- ===== 参数 ===== -->
+  <arg name="joy_dev" default="/dev/input/js0" doc="手柄设备路径" />
+
+  <!-- 速度限制 -->
+  <arg name="max_linear_vel" default="1.5" doc="最大前进/后退速度 m/s" />
+  <arg name="max_lateral_vel" default="0.5" doc="最大左右平移速度 m/s" />
+  <arg name="max_angular_vel" default="1.5" doc="最大旋转速度 rad/s" />
+
+  <!-- ===== 1. 手柄驱动 (joy_node) ===== -->
+  <node pkg="joy" type="joy_node" name="joy_node" output="screen">
+    <param name="dev" value="$(arg joy_dev)" />
+    <param name="deadzone" value="0.05" />
+    <param name="autorepeat_rate" value="30.0" />
+    <param name="coalesce_interval" value="0.02" />
+  </node>
+
+  <!-- ===== 2. 手柄遥操作 ===== -->
+  <!--
+    摇杆映射 (Xbox / Logitech F710 / PS4):
+      左摇杆 Y轴 (axis 1): 前进/后退
+      左摇杆 X轴 (axis 0): 左右平移
+      右摇杆 X轴 (axis 3): 左右旋转
+    按键映射:
+      A / × (button 0): 急停 (按住停止，松开恢复)
+      LB / L1 (button 4): 减速档
+      RB / R1 (button 5): 加速档
+    速度档位: 30% → 50% → 70% → 100%
+  -->
+  <node pkg="nav_exp_env" type="joy_teleop.py" name="joy_teleop" output="screen">
+    <param name="max_linear_vel" value="$(arg max_linear_vel)" />
+    <param name="max_lateral_vel" value="$(arg max_lateral_vel)" />
+    <param name="max_angular_vel" value="$(arg max_angular_vel)" />
+
+    <param name="axis_linear" value="1" />
+    <param name="axis_lateral" value="0" />
+    <param name="axis_angular" value="3" />
+
+    <param name="btn_estop" value="0" />
+    <param name="btn_speed_down" value="4" />
+    <param name="btn_speed_up" value="5" />
+
+    <param name="deadzone" value="0.1" />
+    <rosparam param="speed_levels">[0.3, 0.5, 0.7, 1.0]</rosparam>
+    <param name="default_speed_idx" value="1" />
+
+    <param name="publish_rate" value="30.0" />
+    <param name="cmd_vel_timeout" value="0.5" />
+  </node>
+
+</launch>

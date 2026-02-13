@@ -20,6 +20,7 @@
   <depend>visualization_msgs</depend>
   <depend>sensor_msgs</depend>
 
+  <exec_depend>quadrotor_msgs</exec_depend>
   <exec_depend>rviz</exec_depend>
   <exec_depend>local_sensing</exec_depend>
   <exec_depend>map_loader</exec_depend>

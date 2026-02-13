@@ -23,6 +23,7 @@ catkin_install_python(PROGRAMS
   base_env/scripts/clicked_point_to_pos_cmd.py
   base_env/scripts/poly_traj_smoother.py
   base_env/scripts/gait_joint_publisher.py
+  base_env/scripts/frtree_traj_cmd.py
   cogniplan/scripts/rl_planner_nav.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

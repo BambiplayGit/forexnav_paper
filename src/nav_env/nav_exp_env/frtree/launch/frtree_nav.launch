@@ -1,98 +1,64 @@
+<?xml version="1.0"?>
 <launch>
-  <!-- ============== Arguments ============== -->
-  <arg name="map_name" default="office1" />
-  <arg name="rviz" default="true" />
-  <arg name="use_click_pos_cmd" default="false" />
-  <arg name="click_fixed_z" default="1.0" />
-  <arg name="click_fixed_yaw" default="0.0" />
+    <!-- Launch arguments -->
+    <arg name="rviz" default="true" doc="Whether to launch RViz" />
 
-  <!-- Map configs: office1 -->
-  <arg name="init_x" default="-6.0" />
-  <arg name="init_y" default="10.0" />
-  <arg name="init_yaw" default="-1.57" />
-  <arg name="rotate_z" default="0.0" />
-  <arg name="trans_x" default="0.0" />
-  <arg name="trans_y" default="0.0" />
-  <arg name="pcd_file" default="office.pcd" />
+    <!-- ============== Base Environment ============== -->
+    <!-- Provides: map_loader, odom simulator, local_sensing, odom path publisher, world->odom TF -->
+    <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
+        <arg name="rviz" value="false" />
+        <arg name="use_click_pos_cmd" value="false" />
+        <arg name="map_x_size" value="132" />
+        <arg name="map_y_size" value="132" />
+    </include>
 
-  <!-- ============== Map Loader ============== -->
-  <!-- Fix libusb conflict: system lib must come before MVS -->
-  <node pkg="map_loader" type="map_loader_node" name="map_loader" ns="map_loader" output="screen">
-    <param name="pcd_path" value="$(find map_loader)/resource/$(arg pcd_file)" />
-    <param name="rotate_z" value="$(arg rotate_z)" />
-    <param name="trans_x" value="$(arg trans_x)" />
-    <param name="trans_y" value="$(arg trans_y)" />
-    <param name="trans_z" value="-0.3" />
-    <param name="frame_id" value="map" />
-  </node>
+    <!-- ============== Extra TFs for FRTree ============== -->
+    <!-- world -> map (identity, for hardcoded "map" frame refs in pop_planner) -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map"
+          args="0 0 0 0 0 0 world map" />
 
-  <!-- ============== TF Transforms ============== -->
-  <!-- world -> map -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map"
-        args="0 0 0 0 0 0 world map" />
-  
-  <!-- map -> odom -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="map_to_odom"
-        args="0 0 0 0 0 0 map odom" />
-  
-  <!-- base_link -> base -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_base"
-        args="0 0 0 0 0 0 base_link base" />
-  
-  <!-- base -> unitree_scan (required by local_map for scan sensor) -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_unitree_scan"
-        args="0 0 0 0 0 0 base unitree_scan" />
-  
-  <!-- base -> camera_depth_optical_frame (required by local_map for pointcloud sensor) -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_camera"
-        args="0 0 0 0 0 0 base camera_depth_optical_frame" />
+    <!-- base_link -> base (identity, bridges nav_env's odom->base_link to pop_planner's odom->base) -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_base"
+          args="0 0 0 0 0 0 base_link base" />
 
-  <!-- ============== Odometry Simulator ============== -->
-  <node pkg="nav_exp_env" type="simple_odom_simulator.py" name="simple_odom_simulator" output="screen">
-    <param name="init_x" value="$(arg init_x)" />
-    <param name="init_y" value="$(arg init_y)" />
-    <param name="init_z" value="1.0" />
-    <param name="init_yaw" value="$(arg init_yaw)" />
-    <param name="publish_frequency" value="50.0" />
-    <param name="max_vel" value="10.0" />
-    <param name="max_omega" value="5.0" />
-  </node>
+    <!-- base -> unitree_scan (identity, hardcoded TF lookup in local_decomp.cpp) -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_unitree_scan"
+          args="0 0 0 0 0 0 base unitree_scan" />
 
-  <!-- ============== Local Sensing (generates /velodyne_points) ============== -->
-  <node pkg="local_sensing" type="local_sensing_node" name="local_sensing" ns="local_sensing" output="screen">
-    <rosparam file="$(find local_sensing)/params/local_sensing.yaml" command="load" />
-    <param name="map/x_size" value="132.0" />
-    <param name="map/y_size" value="132.0" />
-    <param name="map/resolution" value="0.1" />
-    <param name="use_relative_cloud" value="true" />
-    <param name="cloud_frame_id" value="unitree_scan" />
-    <remap from="global_map" to="/map_loader/global_cloud" />
-    <remap from="odometry" to="/odom" />
-  </node>
+    <!-- base -> camera_depth_optical_frame (identity, for local_map pointcloud sensor) -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_camera"
+          args="0 0 0 0 0 0 base camera_depth_optical_frame" />
 
-  <!-- ============== Point Cloud Relay (local_sensing -> /velodyne_points) ============== -->
-  <node pkg="topic_tools" type="relay" name="pointcloud_relay" 
-        args="/local_sensing/cloud /velodyne_points" />
+    <!-- ============== Point Cloud Relay ============== -->
+    <!-- pop_planner subscribes to /velodyne_points, nav_env publishes /local_sensing/cloud -->
+    <node pkg="topic_tools" type="relay" name="pointcloud_relay"
+          args="/local_sensing/cloud /velodyne_points" />
 
-  <!-- ============== Odometry Path Publisher ============== -->
-  <node pkg="nav_exp_env" type="odom_path_publisher.py" name="odom_path_publisher" output="screen">
-    <param name="max_path_length" value="2000" />
-    <param name="publish_rate" value="10.0" />
-    <param name="min_distance" value="0.05" />
-  </node>
+    <!-- ============== FRTree Planner ============== -->
+    <!-- Delay startup to wait for TF tree to be complete -->
+    <!-- FRTree publishes /planning/pos_cmd as PoseStamped (position only),
+         remap it away so frtree_traj_cmd can publish PositionCommand (with PVA) instead -->
+    <node pkg="pop_planner" name="planner" type="pop_planner_node" output="screen"
+          launch-prefix="bash -c 'sleep 3; exec $0 $@' ">
+        <rosparam file="$(find pop_planner)/launch/config/pop_plan_fsm_param.yaml" command="load" />
+        <param name="plan_manager/lidar_link_name" value="base_link" />
+        <remap from="local_map/odometry/state_estimation" to="/odom"/>
+        <remap from="goal" to="/move_base_simple/goal"/>
+        <remap from="/planning/pos_cmd" to="/planning/frtree_raw_pos_cmd"/>
+    </node>
 
-  <!-- ============== FRTree Planner ============== -->
-  <!-- Delay startup to wait for TF tree to be complete -->
-  <node pkg="pop_planner" name="planner" type="pop_planner_node" output="screen"
-        launch-prefix="bash -c 'sleep 3; exec $0 $@' ">
-    <rosparam file="$(find pop_planner)/launch/config/pop_plan_fsm_param.yaml" command="load" />
-    <remap from="local_map/odometry/state_estimation" to="/odom"/>
-    <remap from="goal" to="/move_base_simple/goal"/>
-  </node>
+    <!-- ============== FRTree Trajectory PVA Commander ============== -->
+    <!-- Subscribes to FRTree's raw ALTRO trajectory (/traj_pose_vis PoseArray),
+         applies trapezoidal velocity profile (0→v_max→0),
+         publishes PositionCommand with full PVA -->
+    <node pkg="nav_exp_env" name="frtree_traj_cmd" type="frtree_traj_cmd.py" output="screen">
+        <param name="max_vel" value="2.0" />
+        <param name="max_acc" value="2.0" />
+        <param name="traj_topic" value="/traj_pose_vis" />
+        <param name="fixed_z" value="1.0" />
+    </node>
 
-  <!-- ============== RViz ============== -->
-  <node pkg="rviz" type="rviz" name="rviz" 
-        args="-d $(find nav_exp_env)/frtree/config/frtree.rviz"
-        if="$(arg rviz)" />
-
+    <!-- ============== RViz ============== -->
+    <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz"
+          args="-d $(find nav_exp_env)/frtree/config/frtree.rviz" output="screen" />
 </launch>

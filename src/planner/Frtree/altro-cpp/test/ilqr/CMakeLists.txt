@@ -1,0 +1,85 @@
+add_executable(cost_expansion_test
+  cost_expansion_test.cpp
+)
+target_link_libraries(cost_expansion_test
+  PRIVATE
+  gtest_main
+  ilqr
+  cost_function_examples
+  utils
+)
+gtest_discover_tests(cost_expansion_test)
+
+add_executable(dynamics_expansion_test
+  dynamics_expansion_test.cpp
+)
+target_link_libraries(dynamics_expansion_test
+  PRIVATE
+  gtest_main
+  ilqr
+  dynamics_examples
+  utils
+)
+gtest_discover_tests(dynamics_expansion_test)
+
+add_executable(knot_point_functions_test
+  knot_point_functions_test.cpp
+)
+target_link_libraries(knot_point_functions_test
+  PRIVATE
+  gtest_main
+  ilqr
+  dynamics_examples
+  cost_function_examples
+  utils
+)
+gtest_discover_tests(knot_point_functions_test)
+
+add_executable(ilqr_class_test
+  ilqr_class_test.cpp
+)
+target_link_libraries(ilqr_class_test
+  PRIVATE
+  gtest_main
+  ilqr
+  dynamics_examples
+  cost_function_examples
+  example_problems
+  utils
+)
+gtest_discover_tests(ilqr_class_test)
+
+add_executable(ilqr_test
+  ilqr_test.cpp
+)
+target_link_libraries(ilqr_test
+  PRIVATE
+  gtest_main
+  ilqr
+  common
+  dynamics_examples
+  cost_function_examples
+  constraint_examples
+  constraints
+  augmented_lagrangian
+  utils
+)
+gtest_discover_tests(ilqr_test)
+
+add_executable(unicycle_ilqr_test
+  unicycle_ilqr_test.cpp
+)
+target_link_libraries(unicycle_ilqr_test
+  PRIVATE
+  gtest_main
+  augmented_lagrangian
+  common
+  constraints
+  constraint_examples
+  cost_function_examples
+  dynamics_examples
+  example_problems
+  ilqr
+  utils
+)
+gtest_discover_tests(unicycle_ilqr_test)

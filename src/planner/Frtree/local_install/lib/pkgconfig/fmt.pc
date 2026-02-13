@@ -1,0 +1,11 @@
+prefix=/home/songhy/forexnav_ws/forenav_champlite/src/planner/Frtree/local_install
+exec_prefix=/home/songhy/forexnav_ws/forenav_champlite/src/planner/Frtree/local_install
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: fmt
+Description: A modern formatting library
+Version: 9.1.0
+Libs: -L${libdir} -lfmt
+Cflags: -I${includedir}
+

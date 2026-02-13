@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_ros
   tf2_geometry_msgs
   pcl_conversions
+  quadrotor_msgs
 )
 
 find_package(Eigen3 REQUIRED)
@@ -23,7 +24,7 @@ find_package(PCL REQUIRED COMPONENTS common)
 catkin_package(
   INCLUDE_DIRS include minco/include
   LIBRARIES minco_wrapper astar_2d forex_nav_manager forex_nav_fsm
-  CATKIN_DEPENDS roscpp nav_msgs geometry_msgs visualization_msgs std_msgs sensor_msgs tf2 tf2_ros tf2_geometry_msgs pcl_conversions
+  CATKIN_DEPENDS roscpp nav_msgs geometry_msgs visualization_msgs std_msgs sensor_msgs tf2 tf2_ros tf2_geometry_msgs pcl_conversions quadrotor_msgs
 )
 
 include_directories(
@@ -64,6 +65,9 @@ target_link_libraries(forex_nav_manager
 # ForexNavFSM library
 add_library(forex_nav_fsm
   src/forex_nav_fsm.cpp
+)
+add_dependencies(forex_nav_fsm
+  ${catkin_EXPORTED_TARGETS}
 )
 target_link_libraries(forex_nav_fsm
   forex_nav_manager

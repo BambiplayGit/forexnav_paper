@@ -1,12 +1,14 @@
 #include "forex_nav/forex_nav_fsm.h"
 #include <tf2/LinearMath/Quaternion.h>
+#include <quadrotor_msgs/PositionCommand.h>
 #include <cmath>
 #include <Eigen/Core>
 
 namespace forex_nav {
 
 ForexNavFSM::ForexNavFSM(ros::NodeHandle& nh, ros::NodeHandle& pnh) 
-  : nh_(nh), pnh_(pnh), state_(INIT), traj_index_(0) {
+  : nh_(nh), pnh_(pnh), state_(INIT), traj_index_(0),
+    minco_traj_duration_(0.0), minco_start_yaw_(0.0), minco_end_yaw_(0.0), has_minco_traj_(false) {
   
   fd_ = std::make_shared<FSMData>();
   fp_ = std::make_shared<FSMParam>();
@@ -55,7 +57,7 @@ void ForexNavFSM::init() {
   // Subscribe to inflated 3D occupancy point cloud for 3D corridor generation (安全膨胀版)
   occ_cloud_3d_sub_ = nh_.subscribe("/local_sensing/occupancy_3d_inflate", 1, &ForexNavFSM::occCloud3DCallback, this);
   
-  traj_pub_ = nh_.advertise<geometry_msgs::PoseStamped>("/planning/pos_cmd", 10);
+  traj_pub_ = nh_.advertise<quadrotor_msgs::PositionCommand>("/planning/pos_cmd", 10);
   vis_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning_vis/trajectory", 10);
   vis_3d_corridor_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning_vis/corridor_3d", 10);
   vis_fuzzy_astar_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning/fuzzyAstar", 10);
@@ -194,6 +196,7 @@ void ForexNavFSM::FSMCallback(const ros::TimerEvent&) {
       traj_positions_.clear();
       traj_yaws_.clear();
       traj_times_.clear();
+      has_minco_traj_ = false;
       // Clear visualization data
       astar_path_.clear();
       minco_traj_.clear();
@@ -336,7 +339,12 @@ int ForexNavFSM::callPlanner() {
   
   // 用旧轨迹预测速度作为 start_vel，避免因 PD 跟踪延迟导致 odom_vel 偏低
   Eigen::Vector3d start_vel = fd_->odom_vel_;  // 兜底：用 odom 速度
-  if (!traj_positions_.empty() && traj_times_.size() >= 2) {
+  if (has_minco_traj_) {
+    // Use continuous trajectory for accurate velocity
+    double elapsed = (ros::Time::now() - traj_start_time_).toSec();
+    double t = std::max(0.0, std::min(elapsed, minco_traj_duration_));
+    start_vel = minco_traj_obj_.getVel(t);
+  } else if (!traj_positions_.empty() && traj_times_.size() >= 2) {
     double elapsed = (ros::Time::now() - traj_start_time_).toSec();
     double traj_dt = manager_->getNavParam().traj_dt_;
     size_t idx = std::min(static_cast<size_t>(elapsed / traj_dt), traj_positions_.size() - 1);
@@ -348,24 +356,39 @@ int ForexNavFSM::callPlanner() {
     }
   }
   
+  Trajectory<5> minco_traj;
   int res = manager_->planNavMotion(
     fd_->odom_pos_, start_vel, fd_->odom_yaw_,
     fd_->goal_pos_,
     fd_->viewpoints_,
-    path, yaws, times, astar_path);
+    path, yaws, times, astar_path, &minco_traj);
   
   if (res < 0) {
     ROS_ERROR("Planning failed");
     return -1;
   }
   
-  // Store trajectory
+  // Store trajectory (discrete points for visualization/debug)
   traj_positions_ = path;
   traj_yaws_ = yaws;
   traj_times_ = times;
   traj_index_ = 0;
   traj_start_time_ = ros::Time::now();
   last_replan_time_ = ros::Time::now();  // Initialize last replan time
+  
+  // Store continuous MINCO trajectory for real-time p/v/a evaluation
+  if (minco_traj.getPieceNum() > 0) {
+    minco_traj_obj_ = minco_traj;
+    minco_traj_duration_ = minco_traj.getTotalDuration();
+    minco_start_yaw_ = fd_->odom_yaw_;
+    minco_end_yaw_ = yaws.empty() ? fd_->odom_yaw_ : yaws.back();
+    has_minco_traj_ = true;
+    ROS_INFO("[FSM] Stored continuous MINCO trajectory: duration=%.2f s, %d pieces",
+              minco_traj_duration_, minco_traj.getPieceNum());
+  } else {
+    has_minco_traj_ = false;
+    ROS_WARN("[FSM] No continuous MINCO trajectory available, using fallback discrete publishing");
+  }
   
   // Store path data for visualization
   astar_path_ = astar_path;  // A* path (yellow)
@@ -411,115 +434,171 @@ int ForexNavFSM::callPlanner() {
   return 0;
 }
 
+double ForexNavFSM::normalizeAngle(double a) {
+  while (a > M_PI) a -= 2.0 * M_PI;
+  while (a < -M_PI) a += 2.0 * M_PI;
+  return a;
+}
+
 void ForexNavFSM::publishTrajectory() {
-  if (traj_positions_.empty() || traj_times_.empty()) {
-    ROS_WARN_THROTTLE(1.0, "[PUBLISH] No trajectory to publish: positions=%zu, times=%zu",
-                      traj_positions_.size(), traj_times_.size());
+  if (!has_minco_traj_) {
+    // Fallback: use discrete points (backward compatibility)
+    publishTrajectoryFallback();
     return;
   }
   
-  // Calculate elapsed time since trajectory start
-  double elapsed = (ros::Time::now() - traj_start_time_).toSec();
+  double t = (ros::Time::now() - traj_start_time_).toSec();
+  Vector3d pos, vel, acc;
+  double yaw, yawdot;
   
-  // Find the appropriate trajectory point based on time with interpolation
-  size_t idx = 0;
-  for (size_t i = 0; i < traj_times_.size(); ++i) {
-    if (traj_times_[i] <= elapsed) {
-      idx = i;
+  if (t >= 0.0 && t < minco_traj_duration_) {
+    // Real-time analytical evaluation from continuous trajectory (like UAV traj_server)
+    pos = minco_traj_obj_.getPos(t);
+    vel = minco_traj_obj_.getVel(t);
+    acc = minco_traj_obj_.getAcc(t);
+    
+    // Yaw from velocity direction (consistent with MINCO sampling logic)
+    if (vel.head<2>().norm() > 0.1) {
+      yaw = std::atan2(vel.y(), vel.x());
     } else {
-      break;
+      double alpha = t / minco_traj_duration_;
+      double yaw_diff = normalizeAngle(minco_end_yaw_ - minco_start_yaw_);
+      yaw = minco_start_yaw_ + alpha * yaw_diff;
     }
-  }
-  
-  // Clamp to valid range
-  if (idx >= traj_positions_.size()) {
-    idx = traj_positions_.size() - 1;
-  }
-  
-  // Interpolate between current and next point for smooth movement
-  Vector3d pos;
-  double yaw;
-  
-  if (idx < traj_positions_.size() - 1 && elapsed < traj_times_.back()) {
-    // Interpolate between idx and idx+1
-    double t0 = traj_times_[idx];
-    double t1 = traj_times_[idx + 1];
-    double alpha = (t1 > t0) ? (elapsed - t0) / (t1 - t0) : 0.0;
-    alpha = std::max(0.0, std::min(1.0, alpha));  // Clamp to [0, 1]
+    yaw = normalizeAngle(yaw);
     
-    const auto& pos0 = traj_positions_[idx];
-    const auto& pos1 = traj_positions_[idx + 1];
-    pos = pos0 + alpha * (pos1 - pos0);
-    
-    double yaw0 = (idx < traj_yaws_.size()) ? traj_yaws_[idx] : 0.0;
-    double yaw1 = (idx + 1 < traj_yaws_.size()) ? traj_yaws_[idx + 1] : yaw0;
-    
-    // Normalize yaw0 and yaw1 to [-PI, PI] first
-    while (yaw0 > M_PI) yaw0 -= 2.0 * M_PI;
-    while (yaw0 < -M_PI) yaw0 += 2.0 * M_PI;
-    while (yaw1 > M_PI) yaw1 -= 2.0 * M_PI;
-    while (yaw1 < -M_PI) yaw1 += 2.0 * M_PI;
-    
-    // Handle yaw wrap-around: find shortest path
-    double yaw_diff = yaw1 - yaw0;
-    if (yaw_diff > M_PI) {
-      yaw_diff -= 2.0 * M_PI;
-    } else if (yaw_diff < -M_PI) {
-      yaw_diff += 2.0 * M_PI;
+    // Yaw rate: compute from velocity direction change using jerk
+    // For simplicity, use finite difference on yaw from velocity direction
+    double dt_small = 0.005;
+    double t_next = std::min(t + dt_small, minco_traj_duration_);
+    Vector3d vel_next = minco_traj_obj_.getVel(t_next);
+    if (vel.head<2>().norm() > 0.1 && vel_next.head<2>().norm() > 0.1) {
+      double yaw_next = std::atan2(vel_next.y(), vel_next.x());
+      yawdot = normalizeAngle(yaw_next - yaw) / dt_small;
+    } else {
+      yawdot = normalizeAngle(minco_end_yaw_ - minco_start_yaw_) / minco_traj_duration_;
     }
-    
-    yaw = yaw0 + alpha * yaw_diff;
-    // Normalize result
-    while (yaw > M_PI) yaw -= 2.0 * M_PI;
-    while (yaw < -M_PI) yaw += 2.0 * M_PI;
   } else {
-    // Use exact point (last point or exact match)
-    pos = traj_positions_[idx];
-    yaw = (idx < traj_yaws_.size()) ? traj_yaws_[idx] : 0.0;
-    // Normalize yaw
-    while (yaw > M_PI) yaw -= 2.0 * M_PI;
-    while (yaw < -M_PI) yaw += 2.0 * M_PI;
+    // Trajectory finished: hold final position, zero velocity
+    pos = minco_traj_obj_.getPos(minco_traj_duration_);
+    vel.setZero();
+    acc.setZero();
+    yaw = normalizeAngle(minco_end_yaw_);
+    yawdot = 0.0;
   }
   
-  geometry_msgs::PoseStamped cmd;
+  // Publish PositionCommand with full trajectory information (p, v, a, yaw, yaw_dot)
+  quadrotor_msgs::PositionCommand cmd;
   cmd.header.stamp = ros::Time::now();
-  cmd.header.frame_id = "odom";  // Use odom frame to match odometry
-  
-  cmd.pose.position.x = pos.x();
-  cmd.pose.position.y = pos.y();
-  cmd.pose.position.z = pos.z();
-  
-  // Convert yaw to quaternion
-  double cy = std::cos(yaw * 0.5);
-  double sy = std::sin(yaw * 0.5);
-  cmd.pose.orientation.x = 0.0;
-  cmd.pose.orientation.y = 0.0;
-  cmd.pose.orientation.z = sy;
-  cmd.pose.orientation.w = cy;
-  
+  cmd.header.frame_id = "odom";
+  cmd.position.x = pos.x();
+  cmd.position.y = pos.y();
+  cmd.position.z = pos.z();
+  cmd.velocity.x = vel.x();
+  cmd.velocity.y = vel.y();
+  cmd.velocity.z = vel.z();
+  cmd.acceleration.x = acc.x();
+  cmd.acceleration.y = acc.y();
+  cmd.acceleration.z = acc.z();
+  cmd.yaw = yaw;
+  cmd.yaw_dot = yawdot;
+  // Default gains (controller can override via parameters)
+  cmd.kx[0] = cmd.kx[1] = cmd.kx[2] = 0.0;
+  cmd.kv[0] = cmd.kv[1] = cmd.kv[2] = 0.0;
+  cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
   traj_pub_.publish(cmd);
   
   // Update index for visualization
+  double traj_dt = manager_->getNavParam().traj_dt_;
+  traj_index_ = std::min(static_cast<size_t>(t / traj_dt), 
+                          traj_positions_.empty() ? 0 : traj_positions_.size() - 1);
+}
+
+void ForexNavFSM::publishTrajectoryFallback() {
+  // Fallback: discrete-point interpolation + PositionCommand (no continuous trajectory)
+  if (traj_positions_.empty() || traj_times_.empty()) {
+    ROS_WARN_THROTTLE(1.0, "[PUBLISH] No trajectory to publish");
+    return;
+  }
+  
+  double elapsed = (ros::Time::now() - traj_start_time_).toSec();
+  
+  size_t idx = 0;
+  for (size_t i = 0; i < traj_times_.size(); ++i) {
+    if (traj_times_[i] <= elapsed) idx = i;
+    else break;
+  }
+  if (idx >= traj_positions_.size()) idx = traj_positions_.size() - 1;
+  
+  Vector3d pos, vel;
+  double yaw;
+  vel.setZero();
+  
+  if (idx < traj_positions_.size() - 1 && elapsed < traj_times_.back()) {
+    double t0 = traj_times_[idx];
+    double t1 = traj_times_[idx + 1];
+    double alpha = (t1 > t0) ? (elapsed - t0) / (t1 - t0) : 0.0;
+    alpha = std::max(0.0, std::min(1.0, alpha));
+    
+    pos = traj_positions_[idx] + alpha * (traj_positions_[idx + 1] - traj_positions_[idx]);
+    
+    // Estimate velocity from discrete points
+    double dt = t1 - t0;
+    if (dt > 1e-6) {
+      vel = (traj_positions_[idx + 1] - traj_positions_[idx]) / dt;
+    }
+    
+    double yaw0 = normalizeAngle((idx < traj_yaws_.size()) ? traj_yaws_[idx] : 0.0);
+    double yaw1 = normalizeAngle((idx + 1 < traj_yaws_.size()) ? traj_yaws_[idx + 1] : yaw0);
+    double yaw_diff = normalizeAngle(yaw1 - yaw0);
+    yaw = normalizeAngle(yaw0 + alpha * yaw_diff);
+  } else {
+    pos = traj_positions_[idx];
+    yaw = normalizeAngle((idx < traj_yaws_.size()) ? traj_yaws_[idx] : 0.0);
+  }
+  
+  quadrotor_msgs::PositionCommand cmd;
+  cmd.header.stamp = ros::Time::now();
+  cmd.header.frame_id = "odom";
+  cmd.position.x = pos.x();
+  cmd.position.y = pos.y();
+  cmd.position.z = pos.z();
+  cmd.velocity.x = vel.x();
+  cmd.velocity.y = vel.y();
+  cmd.velocity.z = vel.z();
+  cmd.acceleration.x = 0.0;
+  cmd.acceleration.y = 0.0;
+  cmd.acceleration.z = 0.0;
+  cmd.yaw = yaw;
+  cmd.yaw_dot = 0.0;
+  cmd.kx[0] = cmd.kx[1] = cmd.kx[2] = 0.0;
+  cmd.kv[0] = cmd.kv[1] = cmd.kv[2] = 0.0;
+  cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_READY;
+  traj_pub_.publish(cmd);
+  
   traj_index_ = idx;
 }
 
 void ForexNavFSM::publishFinalPosition() {
-  // Publish goal position to make robot stop at goal
-  geometry_msgs::PoseStamped cmd;
+  // Publish goal position with zero velocity to make robot stop at goal
+  quadrotor_msgs::PositionCommand cmd;
   cmd.header.stamp = ros::Time::now();
   cmd.header.frame_id = "odom";
   
-  cmd.pose.position.x = fd_->goal_pos_.x();
-  cmd.pose.position.y = fd_->goal_pos_.y();
-  cmd.pose.position.z = fd_->goal_pos_.z();
-  
-  // Keep current yaw
-  double cy = std::cos(fd_->odom_yaw_ * 0.5);
-  double sy = std::sin(fd_->odom_yaw_ * 0.5);
-  cmd.pose.orientation.x = 0.0;
-  cmd.pose.orientation.y = 0.0;
-  cmd.pose.orientation.z = sy;
-  cmd.pose.orientation.w = cy;
+  cmd.position.x = fd_->goal_pos_.x();
+  cmd.position.y = fd_->goal_pos_.y();
+  cmd.position.z = fd_->goal_pos_.z();
+  cmd.velocity.x = 0.0;
+  cmd.velocity.y = 0.0;
+  cmd.velocity.z = 0.0;
+  cmd.acceleration.x = 0.0;
+  cmd.acceleration.y = 0.0;
+  cmd.acceleration.z = 0.0;
+  cmd.yaw = fd_->odom_yaw_;
+  cmd.yaw_dot = 0.0;
+  cmd.kx[0] = cmd.kx[1] = cmd.kx[2] = 0.0;
+  cmd.kv[0] = cmd.kv[1] = cmd.kv[2] = 0.0;
+  cmd.trajectory_flag = quadrotor_msgs::PositionCommand::TRAJECTORY_STATUS_COMPLETED;
   
   // Publish multiple times to ensure robot stops
   for (int i = 0; i < 5; ++i) {
