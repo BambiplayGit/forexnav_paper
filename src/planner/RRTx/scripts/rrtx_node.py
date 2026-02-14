@@ -7,9 +7,9 @@ Reference paper:
 https://pdfs.semanticscholar.org/0cac/84962d0f1176c43b3319d379a6bf478d50fd.pdf
 
 Subscribes:
-    /local_sensing/occupancy_grid  (nav_msgs/OccupancyGrid)
-    /odom                          (nav_msgs/Odometry)
-    /move_base_simple/goal         (geometry_msgs/PoseStamped)
+    ~occupancy_topic (default /local_sensing/occupancy_grid_inflate)  nav_msgs/OccupancyGrid
+    /odom                                                             nav_msgs/Odometry
+    /move_base_simple/goal                                            geometry_msgs/PoseStamped
 
 Publishes:
     /planning/pos_cmd   (geometry_msgs/PoseStamped)
@@ -116,6 +116,10 @@ class RRTxNode(object):
         self.robot_radius = rospy.get_param("~robot_radius", 0.3)  # inflation (m)
         self.goal_bias = rospy.get_param("~goal_bias", 0.15)       # goal-biased sampling ratio
         self.online_samples = rospy.get_param("~online_samples", 30)  # new samples per move step
+        # Occupancy grid topic: use inflated grid to avoid paths too close to walls (recommended)
+        self.occupancy_topic = rospy.get_param(
+            "~occupancy_topic", "/local_sensing/occupancy_grid_inflate"
+        )
 
         # ---- state ----
         self.tree = RRTxTree(self.max_samples)
@@ -137,11 +141,12 @@ class RRTxNode(object):
         self.pub_path = rospy.Publisher("/planning/raw_path", Path, queue_size=1, latch=True)
         self.pub_tree = rospy.Publisher("/planning/rrtx_tree", Marker, queue_size=1, latch=True)
 
-        rospy.Subscriber("/local_sensing/occupancy_grid", OccupancyGrid, self._cb_occ, queue_size=1)
+        rospy.Subscriber(self.occupancy_topic, OccupancyGrid, self._cb_occ, queue_size=1)
         rospy.Subscriber("/odom", Odometry, self._cb_odom, queue_size=1)
         rospy.Subscriber("/move_base_simple/goal", PoseStamped, self._cb_goal, queue_size=1)
 
-        rospy.loginfo("[RRTx] Node initialized, waiting for goal ...")
+        rospy.loginfo("[RRTx] Node initialized (occupancy_topic=%s), waiting for goal ...",
+                      self.occupancy_topic)
 
     # ===================================================================
     # Callbacks

@@ -4,14 +4,18 @@
   <arg name="max_acc" default="2.0" />
   <arg name="map_x_size" default="15" />
   <arg name="map_y_size" default="30" />
+  <arg name="planning_height" default="0.45" />
 
   <include file="$(find nav_exp_env)/base_env/launch/nav_env_legged.launch">
     <arg name="use_click_pos_cmd" value="false" />
     <arg name="map_x_size" value="$(arg map_x_size)" />
     <arg name="map_y_size" value="$(arg map_y_size)" />
+    <arg name="planning_height" value="$(arg planning_height)" />
   </include>
 
-  <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch" />
+  <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch">
+    <arg name="planning_height" value="$(arg planning_height)" />
+  </include>
 
   <node pkg="forex_nav" type="forex_nav_node" name="forex_nav" output="screen">
     <param name="fsm/replan_thresh1" value="0.4" />
@@ -29,5 +33,6 @@
     <param name="nav/max_yawdot" value="2.09" />
     <param name="nav/traj_dt" value="0.02" />
     <param name="nav/vis_candidate_path_count" value="3"/>
+    <param name="nav/planning_height" value="$(arg planning_height)" />
   </node>
 </launch>

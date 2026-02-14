@@ -299,8 +299,6 @@ struct PlanParameters
     double feasibility_tolerance_; // permitted ratio of vel/acc exceeding limits
     bool use_distinctive_trajs_;
     double local_time_horizon_;
-    double obstacle_dilate_;         // decomp dilate margin (m), larger = trajectory further from obstacles
-    double obstacle_inflation_;      // inflate each obstacle point (m) so nearby points are not missed
 
     /* processing time */
     double time_search_ = 0.0;

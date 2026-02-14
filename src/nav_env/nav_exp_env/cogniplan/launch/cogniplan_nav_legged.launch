@@ -1,34 +1,39 @@
 <launch>
-  <!-- Arguments -->
-  <arg name="rviz" default="true" />
-  <arg name="rviz_config" default="$(find nav_exp_env)/cogniplan/config/cogniplan.rviz" />
+  <!-- CogniPlan + 四足动力学可视化：与 cogniplan_nav 相同的规划，但用 Champ 腿显示 -->
   <arg name="max_vel" default="2.0" />
   <arg name="max_acc" default="2.0" />
-  <arg name="planning_height" default="1.0" />
-  
-  <!-- Map size (meters) - adjust to match your environment -->
-  <!-- For CogniPlan: smaller maps work better (GAN input is 256x256 pixels) -->
-  <!-- Example: 30x40m with 0.1m resolution = 300x400 pixels -->
   <arg name="map_x_size" default="20.0" />
   <arg name="map_y_size" default="30.0" />
-  
-  <!-- CogniPlan Nav model paths (relative to package) -->
+  <arg name="planning_height" default="0.4" doc="Robot init z / planning height (meters)" />
+  <arg name="robot_type" default="zsl-1" doc="Robot type: zsl-1 (智身) or go2 (宇树)" />
+  <arg name="init_x" default="-6.0" />
+  <arg name="init_y" default="10.0" />
+  <arg name="init_yaw" default="-1.57" />
+  <arg name="rviz" default="true" />
+
+  <!-- CogniPlan Nav model paths -->
   <arg name="model_path" default="$(find nav_exp_env)/cogniplan/checkpoints/cogniplan_nav_pred7" />
   <arg name="generator_path" default="$(find nav_exp_env)/cogniplan/checkpoints/wgan_inpainting" />
 
-  <!-- Your nav_env (no click-driven pos_cmd when planner is used) -->
-  <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
-    <arg name="use_click_pos_cmd" value="false" />
+  <!-- ============== Base Environment (四足版) ============== -->
+  <!-- Provides: map_loader, odom simulator (with gait dynamics), local_sensing, gait_joint_publisher, RViz -->
+  <include file="$(find nav_exp_env)/base_env/launch/nav_env_legged.launch">
     <arg name="rviz" value="false" />
+    <arg name="use_click_pos_cmd" value="false" />
     <arg name="map_x_size" value="$(arg map_x_size)" />
     <arg name="map_y_size" value="$(arg map_y_size)" />
+    <arg name="planning_height" value="$(arg planning_height)" />
+    <arg name="robot_type" value="$(arg robot_type)" />
+    <arg name="init_x" value="$(arg init_x)" />
+    <arg name="init_y" value="$(arg init_y)" />
+    <arg name="init_yaw" value="$(arg init_yaw)" />
   </include>
 
-  <!-- TF: map = world so planner frame matches your env -->
+  <!-- ============== TF: world -> map ============== -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_map"
         args="0 0 0 0 0 0 world map" />
 
-  <!-- CogniPlan Nav Planner (9-dim input with direction_vector) -->
+  <!-- ============== CogniPlan Nav Planner ============== -->
   <!-- Use forexnav conda env for PyTorch / scikit-learn / scikit-image deps -->
   <node pkg="nav_exp_env" type="rl_planner_nav.py" name="rl_planner_nav" output="screen"
         cwd="node" ns="cogniplan"
@@ -36,7 +41,7 @@
     <!-- Topic remapping -->
     <remap from="/projected_map" to="/local_sensing/occupancy_grid" />
     <remap from="/state_estimation" to="/odom" />
-    
+
     <!-- Parameters -->
     <param name="model_path" value="$(arg model_path)" />
     <param name="generator_path" value="$(arg generator_path)" />
@@ -47,7 +52,8 @@
     <param name="replanning_frequency" value="2.0"/>
   </node>
 
-  <!-- B-spline trajectory commander: /planning/raw_path -> /planning/pos_cmd (PositionCommand) -->
+  <!-- ============== B-spline Trajectory Commander ============== -->
+  <!-- /planning/raw_path -> /planning/pos_cmd (PositionCommand with full PVA) -->
   <node pkg="nav_exp_env" type="frtree_traj_cmd.py" name="cogniplan_traj_cmd" output="screen">
     <param name="path_topic" value="/planning/raw_path" />
     <param name="max_vel"  value="$(arg max_vel)" />
@@ -57,8 +63,8 @@
     <param name="lookahead_dist" value="0.3" />
   </node>
 
-  <!-- RViz -->
+  <!-- ============== RViz (四足可视化) ============== -->
   <node pkg="rviz" type="rviz" name="rviz_cogniplan" output="screen"
-        args="-d $(arg rviz_config)"
+        args="-d $(find nav_exp_env)/cogniplan/config/cogniplan.rviz -f odom"
         if="$(arg rviz)" />
 </launch>

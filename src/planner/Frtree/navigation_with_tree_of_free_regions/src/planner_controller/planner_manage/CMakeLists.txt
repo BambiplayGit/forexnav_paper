@@ -25,88 +25,28 @@ find_package(PCL 1.7 REQUIRED)
 # find_package(jps3d REQUIRED)
 set(Eigen3_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIR})
 
-###############################################################################
-# Auto-build AltroCpp and HiGHS from source if not found
-###############################################################################
-get_filename_component(FRTREE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
-set(LOCAL_DEPS_PREFIX "${FRTREE_DIR}/local_install")
-list(APPEND CMAKE_PREFIX_PATH "${LOCAL_DEPS_PREFIX}")
-include(ProcessorCount)
-ProcessorCount(NPROC)
-if(NPROC EQUAL 0)
-  set(NPROC 1)
-endif()
-
-# --- AltroCpp ---
-find_package(AltroCpp QUIET)
-if(NOT AltroCpp_FOUND)
-  message(STATUS "===============================================")
-  message(STATUS "AltroCpp not found – building from source ...")
-  message(STATUS "===============================================")
-  execute_process(
-    COMMAND ${CMAKE_COMMAND}
-      -S "${FRTREE_DIR}/altro-cpp"
-      -B "${FRTREE_DIR}/altro-cpp/build"
-      -DCMAKE_BUILD_TYPE=Release
-      -DCMAKE_INSTALL_PREFIX=${LOCAL_DEPS_PREFIX}
-      -DALTRO_BUILD_TESTS=OFF
-      -DALTRO_BUILD_EXAMPLES=OFF
-      -DALTRO_BUILD_BENCHMARKS=OFF
-    RESULT_VARIABLE _altro_cfg_result
-  )
-  if(NOT _altro_cfg_result EQUAL 0)
-    message(FATAL_ERROR "Failed to configure AltroCpp")
-  endif()
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} --build "${FRTREE_DIR}/altro-cpp/build" --parallel ${NPROC}
-    RESULT_VARIABLE _altro_build_result
-  )
-  if(NOT _altro_build_result EQUAL 0)
-    message(FATAL_ERROR "Failed to build AltroCpp")
-  endif()
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} --install "${FRTREE_DIR}/altro-cpp/build"
-    RESULT_VARIABLE _altro_install_result
-  )
-  if(NOT _altro_install_result EQUAL 0)
-    message(FATAL_ERROR "Failed to install AltroCpp")
-  endif()
+# altro-cpp - use in-tree source (relative: planner_manage -> ... -> Frtree/altro-cpp)
+set(ALTRO_CPP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../altro-cpp)
+if(EXISTS "${ALTRO_CPP_SOURCE_DIR}/CMakeLists.txt")
+  set(ALTRO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(ALTRO_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(ALTRO_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+  set(ALTRO_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${ALTRO_CPP_SOURCE_DIR} ${CMAKE_BINARY_DIR}/altro_cpp)
+else()
   find_package(AltroCpp REQUIRED)
 endif()
 
-# --- HiGHS ---
-find_package(highs QUIET)
-if(NOT highs_FOUND)
-  message(STATUS "===============================================")
-  message(STATUS "HiGHS not found – building from source ...")
-  message(STATUS "===============================================")
-  execute_process(
-    COMMAND ${CMAKE_COMMAND}
-      -S "${FRTREE_DIR}/HiGHS"
-      -B "${FRTREE_DIR}/HiGHS/build"
-      -DCMAKE_BUILD_TYPE=Release
-      -DCMAKE_INSTALL_PREFIX=${LOCAL_DEPS_PREFIX}
-      -DBUILD_TESTING=OFF
-      -DBUILD_CXX_EXE=OFF
-    RESULT_VARIABLE _highs_cfg_result
-  )
-  if(NOT _highs_cfg_result EQUAL 0)
-    message(FATAL_ERROR "Failed to configure HiGHS")
+# HiGHS - use in-tree source if present (same Frtree level as altro-cpp)
+set(HIGHS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../HiGHS)
+if(EXISTS "${HIGHS_SOURCE_DIR}/CMakeLists.txt")
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  set(BUILD_CXX_EXE OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${HIGHS_SOURCE_DIR} ${CMAKE_BINARY_DIR}/highs_build)
+  if(NOT TARGET highs::highs)
+    add_library(highs::highs ALIAS highs)
   endif()
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} --build "${FRTREE_DIR}/HiGHS/build" --parallel ${NPROC}
-    RESULT_VARIABLE _highs_build_result
-  )
-  if(NOT _highs_build_result EQUAL 0)
-    message(FATAL_ERROR "Failed to build HiGHS")
-  endif()
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} --install "${FRTREE_DIR}/HiGHS/build"
-    RESULT_VARIABLE _highs_install_result
-  )
-  if(NOT _highs_install_result EQUAL 0)
-    message(FATAL_ERROR "Failed to install HiGHS")
-  endif()
+else()
   find_package(highs REQUIRED)
 endif()
 

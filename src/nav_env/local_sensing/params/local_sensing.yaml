@@ -4,7 +4,7 @@
 #   enable_3d_occ=true:  深度渲染 → 3D体素 → 2D切片 (新管线)
 
 # ---- 2D平面扫描参数 (仅 enable_3d_occ=false 时使用) ----
-fov_angle: 1.396    # rad, ~80 deg 扇形FOV
+fov_angle: 6.28      # rad, ~80 deg 扇形FOV
 max_range: 10.0
 sensing_rate: 30.0
 
@@ -17,7 +17,7 @@ publish_cloud: true
 enable_3d_occ: false
 
 # ---- 深度相机锥形感知参数 ----
-cam_h_fov: 1.396             # rad, ~80 deg 水平FOV
+cam_h_fov: 1.4             # rad, ~80 deg 水平FOV
 cam_v_fov: 1.01             # rad, ~58 deg 垂直FOV
 cam_pitch: 0.0              # rad, 相机俯仰角 (0=水平, 正值=仰视, 负值=俯视)
 cam_max_range: 10.0         # meters, 最大感知距离

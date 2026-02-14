@@ -335,7 +335,7 @@ public:
     bool ifGoBackToParentCanGetLowerCost(GraphNode *node, int mode);
     void updateCurrentNode(GraphNode *&node, std::vector<Eigen::Vector3d> &points_for_backtrack, std::vector<GraphNode *> &nodes_for_backtrack);
     void getPolysForBackTrack(Eigen::Vector3d start_pos, Eigen::Vector3d end_pos, vec_E<Polyhedron3D> &polys_);
-    void getCenterListForNode(GraphNode *&node);
+    bool getCenterListForNode(GraphNode *&node);
     void getDeadEndPoly(Polyhedron3D &poly, Eigen::Vector3d pos);
     void getVisitedPoly(Polyhedron3D &poly, Eigen::Vector3d pos);
 

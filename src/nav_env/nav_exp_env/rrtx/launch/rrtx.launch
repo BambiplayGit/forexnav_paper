@@ -27,12 +27,11 @@
         <param name="online_samples" value="30" />
     </node>
 
-    <!-- Polynomial trajectory smoother -->
-    <node pkg="nav_exp_env" type="poly_traj_smoother.py" name="poly_traj_smoother" output="screen">
+    <!-- RRTX 专用 B-spline：/planning/raw_path -> /planning/pos_cmd，轨迹终点速度 0 -->
+    <node pkg="nav_exp_env" type="rrtx_traj_cmd.py" name="rrtx_traj_cmd" output="screen">
         <param name="path_topic" value="/planning/raw_path" />
-        <param name="max_vel"  value="4.0" />
-        <param name="max_acc"  value="2.0" />
-        <param name="max_jerk" value="10.0" />
+        <param name="max_vel" value="2.0" />
+        <param name="max_acc" value="2.0" />
         <param name="publish_rate" value="50.0" />
         <param name="fixed_z" value="1.0" />
     </node>

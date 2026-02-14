@@ -221,6 +221,9 @@ public:
 
     inline int getFusedDynamicInflateOccupancyInLocalMap(Eigen::Vector3d pos);
 
+    // pos in odom frame: transform to base (map frame), then check local occupancy
+    inline int getOccupancyAtOdomPos(Eigen::Vector3d pos_odom);
+
     // utils: bound index, known, unknown, free, occupied
     inline void boundIndex(Eigen::Vector3i &id);
     inline void boundLocalIndex(Eigen::Vector3i &id);
@@ -501,17 +504,14 @@ inline int GridMap::getStaticInflateOccupancy(Eigen::Vector3d pos)
 inline int GridMap::getFusedDynamicInflateOccupancy(Eigen::Vector3d pos)
 {
     /*
-     *  Note: Note only check the local map occupancy, but also check the static map occupancy
+     *  Note: Check static map (if in bounds) and local map (sensor-based). pos is in odom frame.
+     *  When pos is outside global map (7x7m default), still check local map - obstacles come from sensors.
      */
-    if (!isInMap(pos))
-        return 0;
-
     Eigen::Vector3i id;
-    posToIndex(pos, id);
-
-    if (md_.occupancy_buffer_static_inflate_[toAddress(id)] == 1)
-    {
-        return 1;
+    if (isInMap(pos)) {
+        posToIndex(pos, id);
+        if (md_.occupancy_buffer_static_inflate_[toAddress(id)] == 1)
+            return 1;
     }
 
     Eigen::Matrix4f odom_to_base_matrix = tf2::transformToEigen(*(mp_.odom_transform_ptr_)).matrix().cast<float>();
@@ -543,6 +543,15 @@ inline int GridMap::getFusedDynamicInflateOccupancyInLocalMap(Eigen::Vector3d po
     Eigen::Vector3i id;
     localPosToIndex(pos, id);
     return int(md_.local_occupancy_buffer_inflate_[toLocalAddress(id)]);
+}
+
+inline int GridMap::getOccupancyAtOdomPos(Eigen::Vector3d pos_odom)
+{
+    Eigen::Matrix4f odom_to_base = tf2::transformToEigen(*(mp_.odom_transform_ptr_)).matrix().cast<float>();
+    Eigen::Vector4f p4(pos_odom(0), pos_odom(1), pos_odom(2), 1.0f);
+    p4 = odom_to_base.inverse() * p4;
+    Eigen::Vector3d pos_base(p4(0), p4(1), p4(2));
+    return getFusedDynamicInflateOccupancyInLocalMap(pos_base);
 }
 
 inline void GridMap::boundIndex(Eigen::Vector3i &id)

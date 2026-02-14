@@ -92,26 +92,27 @@ list(POP_BACK CMAKE_MESSAGE_CONTEXT)
 ########################## ENABLE GOOGLE TEST ##################################
 ################################################################################
 
-# This flag is set to ensure that gtest and gmock files do not get installed along with rest of the package. 
-set(INSTALL_GTEST off CACHE BOOL "" FORCE)
-
-# Add Google Test
-include(FetchContent)
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_GetProperties(googletest)
-if(NOT googletest_POPULATED)
-  FetchContent_Populate(googletest)
-  add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR})
-endif()
+# Only fetch googletest when building tests (avoids conflict with catkin/ROS gtest)
 if (ALTRO_BUILD_TESTS)
+  # This flag is set to ensure that gtest and gmock files do not get installed along with rest of the package.
+  set(INSTALL_GTEST off CACHE BOOL "" FORCE)
+
+  # Add Google Test
+  include(FetchContent)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/609281088cfefc76f9d0ce82e1ff6c30cc3591e5.zip
+  )
+  # For Windows: Prevent overriding the parent project's compiler/linker settings
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_GetProperties(googletest)
+  if(NOT googletest_POPULATED)
+    FetchContent_Populate(googletest)
+    add_subdirectory(${googletest_SOURCE_DIR} ${googletest_BINARY_DIR})
+  endif()
   enable_testing()
+  include(GoogleTest)
 endif()
-include(GoogleTest)
 
 ################################################################################
 ############################ DOCUMENTATION #####################################

@@ -1,9 +1,0 @@
-prefix=/home/songhy/forexnav_ws/forenav_champlite/src/planner/Frtree/local_install
-exec_prefix=${prefix}
-
-Name: Eigen3
-Description: A C++ template library for linear algebra: vectors, matrices, and related algorithms
-Requires:
-Version: 3.4.0
-Libs:
-Cflags: -I${prefix}/include/eigen3

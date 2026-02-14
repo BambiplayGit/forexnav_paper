@@ -84,9 +84,10 @@ private:
     /* parameters */
     double local_planning_len_, planning_horizen_time_, planning_distance_;
     double goal_tolerance_, goal_yaw_tolerance_; // meter
+    double goal_tolerance_direct_;               // meter, direct goal check threshold (use goal position directly)
     double t_replan_thresh_;                     // sec
     double max_vel_, max_acc_;                   // m/s, m/s^2 for position tracking
-    double max_yaw_vel_;                         // rad/s, max angular velocity (yaw) for ALTRO and cmd_vel
+    double pos_cmd_step_scale_;                   // scale > 1: larger pos_cmd step, faster tracking
     int subgoal_drl_mode_;                       // 0: spacial horizon, 1:time_astar
     double subgoal_pub_period_;
     int mid_replan_count_ = 0;
@@ -159,6 +160,7 @@ private:
     bool achieve_goal();
 
     /* helper functions */
+    void stopRobot();  // stop robot: publish zero cmd_vel AND pos_cmd at current position
     void changeFSMExecState(FSM_EXEC_STATE new_state, std::string pos_call);
     void printFSMExecState();
 

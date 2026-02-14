@@ -1,9 +1,8 @@
 goal_tolerance: &goal_tolerance 0.05
 
-max_vel: &max_vel 2.0                          # m/s   robot max vel (ALTRO v_bnd + cmd_vel linear limit)
-max_yaw_vel: &max_yaw_vel 2.09                # rad/s robot max yaw rate (ALTRO vyaw_bnd + cmd_vel angular limit)
-max_acc: &max_acc 2.0                         # m/s^2 robot max acc
-max_jerk: &max_jerk 10.0                      # m/s^3 robot max jerk
+max_vel: &max_vel 2.0                          # m/s   robot max vel
+max_acc: &max_acc 2.0                        # m/s^2 robot max acc
+max_jerk: &max_jerk 10.0                             # m/s^3 robot max jerk
 
 obstacles_inflation: &obstacles_inflation 0.1       # m
 
@@ -17,14 +16,11 @@ fsm/mpc/delta_time: 0.15
 # ----------------------------------------------------------------------------------
 # 2. Plan manager parameter (plan_manager/)
 plan_manager/max_vel: *max_vel
-plan_manager/max_yaw_vel: *max_yaw_vel
 plan_manager/max_acc: *max_acc
 plan_manager/max_jerk: *max_jerk
 plan_manager/control_points_distance: 0.3
-# avoid ignoring nearby point cloud: larger = trajectory further from obstacles
-plan_manager/obstacle_dilate: 0.4
-# 0=off; 0.05~0.08=inflate each obstacle point (may crash if point cloud very dense)
-plan_manager/obstacle_inflation: 0.0
+# pos_cmd 插值步长倍数，>1 则每步前进更多、跟踪更快（配合 direct_position_tracking 的 odom）
+plan_manager/pos_cmd_step_scale: 1.5
 
 # ----------------------------------------------------------------------------------
 # 4. Bspline optimizer for local traj (optimization/)
@@ -85,7 +81,7 @@ optimization_local/dist0: 0.13
 # ----------------------------------------------------------------------------------
 # 6. Mapping (local_map/) 
 local_map/frame_id: map
-local_map/resolution: 0.1
+#esdf_map/resolution: 0.05
 local_map/use_occ_esdf: true
 
 # inflations (meter)
@@ -110,7 +106,7 @@ local_map/show_esdf_time: false
 mpc_local_controller/Q_vec: [20, 20, 8]
 mpc_local_controller/R_vec: [0.1, 0.5]
 mpc_local_controller/Rd_vec: [0.05, 0.05]
-mpc_local_controller/max_acc: 2.0
-mpc_local_controller/min_acc: -2.0
-mpc_local_controller/max_w_dot: 2.0
+mpc_local_controller/max_acc: 0.1
+mpc_local_controller/min_acc: -0.25
+mpc_local_controller/max_w_dot: 0.25
 mpc_local_controller/max_vel: *max_vel

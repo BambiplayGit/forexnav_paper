@@ -30,7 +30,7 @@ class SplineTrajSmoother(object):
     def __init__(self):
         rospy.init_node("poly_traj_smoother", anonymous=False)
 
-        self.max_vel = rospy.get_param("~max_vel", 4.0)
+        self.max_vel = rospy.get_param("~max_vel", 2.0)
         self.max_acc = rospy.get_param("~max_acc", 2.0)
         self.publish_rate = rospy.get_param("~publish_rate", 50.0)
         self.fixed_z = rospy.get_param("~fixed_z", 1.0)

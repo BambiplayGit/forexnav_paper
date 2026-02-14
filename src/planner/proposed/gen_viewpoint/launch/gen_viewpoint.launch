@@ -1,4 +1,6 @@
 <launch>
+  <arg name="planning_height" default="1.0" doc="Planning height for 2D mode and viewpoint visualization (m)" />
+
   <node pkg="gen_viewpoint" type="gen_viewpoint_node" name="gen_viewpoint" output="screen">
     <param name="grid_topic" value="/local_sensing/occupancy_grid" />
     <!-- Frontier extraction -->
@@ -28,7 +30,7 @@
     <param name="unknown_blocks_visibility" value="true" />
     <!-- 2D mode parameters -->
     <param name="use_2d_mode" value="true" />
-    <param name="fixed_height_2d" value="1.0" />
+    <param name="fixed_height_2d" value="$(arg planning_height)" />
     <param name="use_strict_2d_mode" value="false" />
     <!-- Output -->
     <param name="max_viewpoints_total" value="50" />

@@ -3,6 +3,7 @@
     <!-- Launch arguments -->
     <arg name="max_vel" default="2.0" doc="Maximum velocity (m/s)" />
     <arg name="max_acc" default="2.0" doc="Maximum acceleration (m/s^2)" />
+    <arg name="planning_height" default="1.0" doc="Robot planning height (m)" />
     <arg name="rviz" default="true" doc="Whether to launch RViz" />
     
     <!-- Include nav_exp_env launch (disable rviz, we'll use our own) -->
@@ -10,10 +11,13 @@
         <arg name="rviz" value="false" />
         <arg name="map_x_size" value="20" />
         <arg name="map_y_size" value="30" />
+        <arg name="planning_height" value="$(arg planning_height)" />
     </include>
     
     <!-- Include gen_viewpoint launch -->
-    <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch" />
+    <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch">
+        <arg name="planning_height" value="$(arg planning_height)" />
+    </include>
     
     <!-- ForexNav node -->
     <node pkg="forex_nav" type="forex_nav_node" name="forex_nav" output="screen">
@@ -35,6 +39,7 @@
         <param name="nav/max_yawdot" value="2.09" />
         <param name="nav/traj_dt" value="0.02" />
         <param name="nav/vis_candidate_path_count" value="3"/>
+        <param name="nav/planning_height" value="$(arg planning_height)" />
     </node>
     
     <!-- Include map_predictor launch -->

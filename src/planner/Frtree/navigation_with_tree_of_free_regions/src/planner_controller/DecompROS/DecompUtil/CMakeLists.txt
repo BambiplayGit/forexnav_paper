@@ -7,8 +7,6 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wno-deprecated-declarations")
 
-set(BUILD_SHARED_LIBS ON)
-
 find_package(catkin REQUIRED)
 find_package(Eigen3 REQUIRED)
 
@@ -17,7 +15,13 @@ catkin_package(
   DEPENDS EIGEN3
 )
 
-include_directories(${EIGEN3_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS} include)
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+)
+
+# Test executables are built by decomp_test_node, skip here to avoid target conflicts.
 
 install(DIRECTORY include/decomp_basis include/decomp_geometry include/decomp_util
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}/../)

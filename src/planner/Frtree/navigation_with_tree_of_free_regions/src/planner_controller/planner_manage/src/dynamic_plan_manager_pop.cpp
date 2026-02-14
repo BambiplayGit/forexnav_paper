@@ -9,8 +9,8 @@ void DynamicPlanManagerPOP::initPlanModules(ros::NodeHandle &nh)
     node_ = nh;
 // std::cout << "initPlanModules" << std::endl;
     // ros param
-	node_.param("plan_manager/max_vel", pp_.max_vel_, 0.6); // TODO should be same to MPC controller
-	node_.param("plan_manager/max_acc", pp_.max_acc_, 0.1);
+	node_.param("plan_manager/max_vel", pp_.max_vel_, 2.0);
+	node_.param("plan_manager/max_acc", pp_.max_acc_, 2.0);
 	node_.param("plan_manager/max_jerk", pp_.max_jerk_, 2.0);
 	// node_.param("plan_manager/time_resolution",  pp_.time_resolution_, 1.0);
 	node_.param("plan_manager/feasibility_tolerance", pp_.feasibility_tolerance_, 0.05);
@@ -21,8 +21,6 @@ void DynamicPlanManagerPOP::initPlanModules(ros::NodeHandle &nh)
 	node_.param("plan_manager/shortest_edge_length_robot", pp_.shortest_edge_length_robot_, 0.32);
 	// !! change the lidar link name according to your robot
 	node_.param("plan_manager/lidar_link_name", pp_.lidar_link_name_, std::string("velodyne_link"));
-	node_.param("plan_manager/obstacle_dilate", pp_.obstacle_dilate_, 0.28);       // decomp margin, avoid ignoring nearby obstacles
-	node_.param("plan_manager/obstacle_inflation", pp_.obstacle_inflation_, 0.0);   // 0=off; 0.05~0.08=inflate points (can cause crash if too many)
 	pub_global_traj_ = node_.advertise<visualization_msgs::Marker>("global_raw_traj", 10);
 	pub_local_traj_ = node_.advertise<visualization_msgs::Marker>("local_raw_traj", 10);
 	pub_local_traj_opt_ = node_.advertise<visualization_msgs::Marker>("local_opt_traj", 10);
@@ -227,8 +225,8 @@ bool DynamicPlanManagerPOP::checkCollision(const Eigen::Vector3d &pos)
 
 bool DynamicPlanManagerPOP::checkLocalCollision(const Eigen::Vector3d &pos)
 {
-	bool is_occ = grid_map_->getFusedDynamicInflateOccupancy(pos);
-	return is_occ;
+	int occ = grid_map_->getOccupancyAtOdomPos(pos);
+	return (occ == 1);
 }
 
 bool DynamicPlanManagerPOP::checkTrajCollision(double &distance, int &start_collision_index)
@@ -530,26 +528,6 @@ void DynamicPlanManagerPOP::velodyneCallback(const sensor_msgs::PointCloud2Const
             obs3d.push_back(obs[i]);
     }
 
-    // Optional: inflate each obstacle point (set plan_manager/obstacle_inflation to 0.05~0.08 to enable;
-    // disabled by default to avoid huge obs set and possible crash in decomp)
-    const double inf = pp_.obstacle_inflation_ > 1e-6 ? pp_.obstacle_inflation_ : 0.0;
-    if (inf > 0) {
-        const size_t n_real = obs3d.size();
-        if (n_real <= 500) {  // only inflate if point count is modest
-            for (size_t i = 0; i < n_real; i++) {
-                const Vec3f &c = obs3d[i];
-                for (int dx = -1; dx <= 1; dx++)
-                    for (int dy = -1; dy <= 1; dy++)
-                        for (int dz = -1; dz <= 1; dz++) {
-                            if (dx == 0 && dy == 0 && dz == 0) continue;
-                            Vec3f p;
-                            p << c(0) + dx * inf, c(1) + dy * inf, c(2) + dz * inf;
-                            obs3d.push_back(p);
-                        }
-            }
-        }
-    }
-
     // to eliminate the points that casued by the robot itself
     // all the point that within a rectangle of 0.55m * 0.4m will be eliminated
 	// for (int i = 0; i < obs3d.size(); i++){
@@ -718,7 +696,7 @@ bool DynamicPlanManagerPOP::setLinearConstraintsandVertices(vec_E<Polyhedron3D> 
 		flag =  geo_utils::enumerateVs(hPoly, vPoly);
 		if (!flag)
 		{
-			ROS_ERROR("[Plan manage]: Failed to convert polyhedron to vertices.");
+			ROS_ERROR("[Plan manage]: Failed to convert polyhedron %u/%zu to vertices.", i, polys_.size());
 			return false;
 		}
 		else{
@@ -786,7 +764,12 @@ std::cout << "in estimateIntersectionVolumeAndGetNewPolyhedron" << std::endl;
 	{
 		hPoly.row(j + poly1_num_facets) << A2.row(j), -b2(j);
 	}
-	geo_utils::enumerateVs(hPoly, vPoly);
+	if (!geo_utils::enumerateVs(hPoly, vPoly) || vPoly.cols() == 0) {
+		ROS_WARN("[Plan manage]: Failed to enumerate intersection vertices, returning original polys.");
+		polys_tmp_.push_back(poly1_);
+		polys_tmp_.push_back(poly2_);
+		return polys_tmp_;
+	}
 // for(int i = 0; i < vPoly.cols(); i++){
 // 	std::cout << vPoly.col(i).transpose() << std::endl;
 // }
@@ -1097,6 +1080,13 @@ void DynamicPlanManagerPOP::generatePolyhedronAtIntersection(vec_E<Polyhedron3D>
 	Eigen::Vector3d start_pos = node->replan_pos_;
 	for (unsigned int i = 0; i < sequence_of_polys ; ++i){
 	// std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!i: " << i << std::endl;
+		// Safety: skip if polyhedrons have empty vertices
+		if (polys_after_generation_[i].size() < 2 ||
+		    polys_after_generation_[i][0].vertices_.cols() == 0 ||
+		    polys_after_generation_[i][1].vertices_.cols() == 0) {
+			ROS_WARN("[Plan manage]: generatePolyhedronAtIntersection: skipping direction %u due to empty vertices.", i);
+			continue;
+		}
 		dead_end = !ifCanPassThroughShortestLine(polys_after_generation_[i][0], polys_after_generation_[i][1], robot_pos_odom);
 		if(!dead_end){
 			// compare the leading ray of the polyhedron with the direction from the start point to the end point
@@ -1145,12 +1135,13 @@ void DynamicPlanManagerPOP::generatePolyhedronAtIntersection(vec_E<Polyhedron3D>
 
 				if (!too_close){
 					new_node->parent_ = node;
-					getCenterListForNode(new_node);
+					if (getCenterListForNode(new_node) && new_node->center_list_.size() >= 3) {
 // std::cout << "dist to travel: " << (new_node->center_list_[2] - new_node->center_list_[0]).norm() << std::endl;
-					if((new_node->center_list_[2] - new_node->center_list_[0]).norm() > 0.049){
-						node->child_.push_back(new_node);
+						if((new_node->center_list_[2] - new_node->center_list_[0]).norm() > 0.049){
+							node->child_.push_back(new_node);
 // std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! node added" << std::endl;
 						}
+					}
 				}
 
 			}
@@ -1198,17 +1189,22 @@ void DynamicPlanManagerPOP::generatePolyhedronAtIntersection(vec_E<Polyhedron3D>
 
 					if (!too_close){
 						new_node->parent_ = node;
-						getCenterListForNode(new_node);
+						if (getCenterListForNode(new_node) && new_node->center_list_.size() >= 3) {
 std::cout << "dist to travel: " << (new_node->center_list_[2] - new_node->center_list_[0]).norm() << std::endl;
-					if((new_node->center_list_[2] - new_node->center_list_[0]).norm() > 0.049){
-						node->child_.push_back(new_node);
+							if((new_node->center_list_[2] - new_node->center_list_[0]).norm() > 0.049){
+								node->child_.push_back(new_node);
 std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! node added" << std::endl;
+							}
 						}
 				}
 				}
 
 			}
 			else if (backtrackFlag_){
+				if (polys_after_generation_[i][1].vertices_.cols() == 0) {
+					ROS_WARN("[Plan manage]: backtrack node skipped: poly vertices are empty.");
+					continue;
+				}
 				GraphNode *new_node = new GraphNode();
 				Eigen::Vector3d replan_pts = polys_after_generation_[i][1].vertices_.rowwise().mean();
 				new_node->replan_pos_ = replan_pts;																// the geometry center of the second polyhedron, and this is the replan position
@@ -1217,9 +1213,10 @@ std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! node added" << std
 				new_node->dead_end_ = dead_end;
 				new_node->leading_ray_ = end_pos - start_pos;	// the leading ray is the direction from the start point to the end point
 				new_node->parent_ = node;
-				getCenterListForNode(new_node);
-				node->child_.push_back(new_node);
+				if (getCenterListForNode(new_node) && new_node->center_list_.size() >= 3) {
+					node->child_.push_back(new_node);
 std::cout << "node added" << std::endl;
+				}
 			}
 		}
 		else{
@@ -1390,8 +1387,14 @@ void DynamicPlanManagerPOP::getPolysForBackTrack(Eigen::Vector3d start_pos, Eige
 	{
 		hPoly2.row(j) << A2.row(j), -b2(j);
 	}
-	geo_utils::enumerateVs(hPoly1, vPoly1);
-	geo_utils::enumerateVs(hPoly2, vPoly2);
+	if (!geo_utils::enumerateVs(hPoly1, vPoly1)) {
+		ROS_WARN("[Plan manage]: getPolysForBackTrack: Failed to enumerate vertices for poly1.");
+		return;
+	}
+	if (!geo_utils::enumerateVs(hPoly2, vPoly2)) {
+		ROS_WARN("[Plan manage]: getPolysForBackTrack: Failed to enumerate vertices for poly2.");
+		return;
+	}
 	poly1.set_vertices(vPoly1);
 	poly2.set_vertices(vPoly2);
 
@@ -1472,7 +1475,7 @@ bool DynamicPlanManagerPOP::decomposePolys(){
         }
 	}
 	if (!setLinearConstraintsandVertices(polys_, points_for_poly_)){
-		ROS_WARN("[Plan manage]: decomposePolys failed, clearing polys.");
+		ROS_ERROR("[Plan manage]: decomposePolys failed, clearing polys.");
 		polys_.clear();
 		points_for_poly_.clear();
 		return false;
@@ -1528,38 +1531,11 @@ void DynamicPlanManagerPOP::interestPointsCallback(const visualization_msgs::Mar
 	interesting_rays_for_replan_pub_.publish(rays_for_replan);
 }
 
-/**
- * @brief Compute a "safe center" for a polyhedron (Ax < b).
- * Starts from the vertex centroid and iteratively pushes it away from any face
- * that is closer than min_clearance. This prevents the local goal from being
- * too close to obstacles (polyhedron boundaries).
- */
-static Eigen::Vector3d computeSafeCenter(const MatD3f& A, const VecDf& b,
-                                          const Eigen::Matrix3Xd& vertices,
-                                          double min_clearance)
-{
-	Eigen::Vector3d center = vertices.rowwise().mean();
-	// Iteratively push center away from close faces (max 8 iterations)
-	for (int iter = 0; iter < 8; iter++) {
-		bool adjusted = false;
-		for (int i = 0; i < A.rows(); i++) {
-			double row_norm = A.row(i).norm();
-			if (row_norm < 1e-8) continue;
-			// Signed distance from center to face i (positive = inside)
-			double dist = (b(i) - A.row(i).dot(center)) / row_norm;
-			if (dist < min_clearance) {
-				// Push center inward (opposite to face normal)
-				double push = min_clearance - dist;
-				center -= push * (A.row(i).transpose().normalized());
-				adjusted = true;
-			}
-		}
-		if (!adjusted) break;
+bool DynamicPlanManagerPOP::getCenterListForNode(GraphNode *&node){
+	if (node->polys_.size() < 2) {
+		ROS_ERROR("[Plan manage]: getCenterListForNode: node has fewer than 2 polys (size=%zu).", node->polys_.size());
+		return false;
 	}
-	return center;
-}
-
-void DynamicPlanManagerPOP::getCenterListForNode(GraphNode *&node){
 	auto vs1 = node->polys_[0].hyperplanes();
 	auto vs2 = node->polys_[1].hyperplanes();
 	int poly1_num_facets = vs1.size();
@@ -1583,28 +1559,26 @@ void DynamicPlanManagerPOP::getCenterListForNode(GraphNode *&node){
 	{
 		hPoly.row(j + poly1_num_facets) << A2.row(j), -b2(j);
 	}
-	geo_utils::enumerateVs(hPoly, vPoly);
-
-	// Use safety margin to push centers away from obstacles
-	double margin = pp_.obstacle_dilate_;  // default 0.28m
-
-	// Intersection center (use combined A, b of both polyhedra)
-	Eigen::MatrixXd A_inter(A1.rows() + A2.rows(), 3);
-	Eigen::VectorXd b_inter(b1.size() + b2.size());
-	A_inter << A1, A2;
-	b_inter << b1, b2;
-	Eigen::Vector3d center = computeSafeCenter(A_inter, b_inter, vPoly, margin);
-
-	// Safe centers for each polyhedron
-	node->center_list_.push_back(computeSafeCenter(A1, b1, node->polys_[0].vertices_, margin));
+	if (!geo_utils::enumerateVs(hPoly, vPoly) || vPoly.cols() == 0) {
+		ROS_ERROR("[Plan manage]: getCenterListForNode: Failed to enumerate vertices for intersection.");
+		return false;
+	}
+	// get the center of the polyhedron
+	Eigen::Vector3d center = vPoly.rowwise().mean();
+	// Safety: check that polys have valid vertices before accessing
+	if (node->polys_[0].vertices_.cols() == 0 || node->polys_[1].vertices_.cols() == 0) {
+		ROS_ERROR("[Plan manage]: getCenterListForNode: poly vertices are empty.");
+		return false;
+	}
+	node->center_list_.push_back(node->polys_[0].vertices_.rowwise().mean());
 	node->center_list_.push_back(center);
-	node->center_list_.push_back(computeSafeCenter(A2, b2, node->polys_[1].vertices_, margin));
+	node->center_list_.push_back(node->polys_[1].vertices_.rowwise().mean());
 	for (int i = 2; i < node->polys_.size(); ++i){
-		auto Ai = node->polys_[i].lc_.A();
-		auto bi = node->polys_[i].lc_.b();
-		node->center_list_.push_back(computeSafeCenter(Ai, bi, node->polys_[i].vertices_, margin));
+		if (node->polys_[i].vertices_.cols() > 0)
+			node->center_list_.push_back(node->polys_[i].vertices_.rowwise().mean());
 	}
 //std::cout << "center list size: " << node->center_list_.size() << std::endl;
+	return true;
 }
 
 void DynamicPlanManagerPOP::getDeadEndPoly(Polyhedron3D &poly, Eigen::Vector3d pos){
@@ -1613,8 +1587,8 @@ void DynamicPlanManagerPOP::getDeadEndPoly(Polyhedron3D &poly, Eigen::Vector3d p
 	const Vec3f center(pos(0), pos(1), pos(2));
 	SeedDecomp3D sd(center);
 	sd.set_obs(obs3d_odom_);
-		sd.set_local_bbox(Vec3f(1.0, 1.0, 0.5));
-		sd.dilate(0.2);
+	sd.set_local_bbox(Vec3f(1.0, 1.0, 0.5));
+	sd.dilate(0.2);
 	Polyhedron3D poly_new = sd.get_polyhedron();
 	auto vs_new = poly_new.hyperplanes();
 	LinearConstraint3D cs_new(center, vs_new);
@@ -1627,8 +1601,8 @@ void DynamicPlanManagerPOP::getVisitedPoly(Polyhedron3D &poly, Eigen::Vector3d p
 	const Vec3f center(pos(0), pos(1), pos(2));
 	SeedDecomp3D sd(center);
 	sd.set_obs(obs3d_odom_);
-		sd.set_local_bbox(Vec3f(0.5, 0.5, 0.2));
-		sd.dilate(0.2);
+	sd.set_local_bbox(Vec3f(0.5, 0.5, 0.2));
+	sd.dilate(0.2);
 	Polyhedron3D poly_new = sd.get_polyhedron();
 	auto vs_new = poly_new.hyperplanes();
 	LinearConstraint3D cs_new(center, vs_new);

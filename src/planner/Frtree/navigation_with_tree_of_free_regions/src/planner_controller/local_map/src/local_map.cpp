@@ -550,7 +550,7 @@ void GridMap::projectPointCloud(boost::shared_ptr<pcl::PointCloud<pcl::PointXYZ>
     Eigen::Vector3d p2d, p2d_inf;
     Eigen::Vector3i inf_pt, pt_2D_slice_;
 
-    // Keep 0 to avoid OOB/crash; use local_map/obstacles_inflation in get_static_buffer only
+    // double inf_step = ceil(mp_.obstacles_inflation_ / mp_.resolution_);
     double inf_step = 0;
 
 // std::cout << "point_cloud->points.size(): " << point_cloud->points.size() << std::endl;
@@ -621,20 +621,6 @@ void GridMap::getInterestingPointsFromPointCloud(const pcl::PointCloud<pcl::Poin
 }
 
 void GridMap::computeCurvature(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, std::vector<double> &curvature){
-    const int N = (int)cloud->points.size();
-    if (N < 11) {
-        // Not enough points for curvature computation (need at least 11)
-        curvature.assign(N, 0.0);
-        md_.cloud_neighbor_picked_.assign(N, 0);
-        md_.cloud_sort_ind_.resize(N);
-        std::iota(md_.cloud_sort_ind_.begin(), md_.cloud_sort_ind_.end(), 0);
-        return;
-    }
-    curvature.resize(N, 0.0);
-    md_.cloud_neighbor_picked_.resize(N, 0);
-    md_.cloud_sort_ind_.resize(N);
-    std::iota(md_.cloud_sort_ind_.begin(), md_.cloud_sort_ind_.end(), 0);
-
     // compute the curvature of the point cloud (10 to the left and 10 to the right)
     // for (int i = 10; i < cloud->points.size() - 10; i++)
     // {
@@ -701,7 +687,7 @@ void GridMap::computeCurvature(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
     //     md_.cloud_sort_ind_[i] = i;        
     // }
 
-    for (int i = 5; i < N - 5; i++)
+    for (int i = 5; i < cloud->points.size() - 5; i++)
     {
         float diffX = cloud->points[i - 5].x + cloud->points[i - 4].x + cloud->points[i - 3].x + cloud->points[i - 2].x + cloud->points[i - 1].x - 10*cloud->points[i].x + cloud->points[i + 1].x + cloud->points[i + 2].x + cloud->points[i + 3].x + cloud->points[i + 4].x + cloud->points[i + 5].x;
         float diffY = cloud->points[i - 5].y + cloud->points[i - 4].y + cloud->points[i - 3].y + cloud->points[i - 2].y + cloud->points[i - 1].y - 10*cloud->points[i].y + cloud->points[i + 1].y + cloud->points[i + 2].y + cloud->points[i + 3].y + cloud->points[i + 4].y + cloud->points[i + 5].y;
@@ -1521,9 +1507,9 @@ void GridMap::get_static_buffer(std::vector<char> &static_buffer_inflate)
             {
                 // [*] addr in nav_msg::OccupancyGrid.data
                 idx_nav_occ = id_x + id_y * mp_.map_voxel_num_(0) + id_z * mp_.map_voxel_num_(0) * mp_.map_voxel_num_(1);
-                // [*] cast data from int8 to int[important]
-                // data = (int)static_map_.data[idx_nav_occ];
-                // Check data not be 0 or 100
+                if (idx_nav_occ >= (int)static_map_.data.size())
+                    continue;
+                data = (int)static_map_.data[idx_nav_occ];
                 if (data != 0 && data != 100)
                 {
                     // std::cout<<"data probability="<<value<<std::endl;

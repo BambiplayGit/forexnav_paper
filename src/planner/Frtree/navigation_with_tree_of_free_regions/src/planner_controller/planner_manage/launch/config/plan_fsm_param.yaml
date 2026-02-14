@@ -1,11 +1,10 @@
-goal_tolerance: &goal_tolerance 0.2
+goal_tolerance: &goal_tolerance 0.05
 
-max_vel: &max_vel 2                          # m/s   robot max vel (ALTRO v_bnd + cmd_vel linear limit)
-max_yaw_vel: &max_yaw_vel 2                 # rad/s robot max yaw rate (ALTRO vyaw_bnd + cmd_vel angular limit)
-max_acc: &max_acc 2                         # m/s^2 robot max acc
-max_jerk: &max_jerk 0.2                       # m/s^3 robot max jerk
+max_vel: &max_vel 2.0                          # m/s   robot max vel
+max_acc: &max_acc 2.0                        # m/s^2 robot max acc
+max_jerk: &max_jerk 10.0                             # m/s^3 robot max jerk
 
-obstacles_inflation: &obstacles_inflation 0.30       # m
+obstacles_inflation: &obstacles_inflation 0.10       # m
 
 # ----------------------------------------------------------------------------------
 # 1. FSM parameters (fsm/)
@@ -17,7 +16,6 @@ fsm/mpc/delta_time: 0.15
 # ----------------------------------------------------------------------------------
 # 2. Plan manager parameter (plan_manager/)
 plan_manager/max_vel: *max_vel
-plan_manager/max_yaw_vel: *max_yaw_vel
 plan_manager/max_acc: *max_acc
 plan_manager/max_jerk: *max_jerk
 plan_manager/control_points_distance: 0.3

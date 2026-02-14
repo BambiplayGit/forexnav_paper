@@ -742,7 +742,7 @@ class ViewpointPlannerNode {
     pts.color.b = 1.0f;
     pts.color.a = 1.0f;
 
-    const double vp_z = 1.0;  // Viewpoint marker height (m)
+    const double vp_z = fixed_height_2d_;  // Viewpoint marker height aligned to planning_height
 
     for (size_t i = 0; i < vps.size(); ++i) {
       geometry_msgs::Pose pose;

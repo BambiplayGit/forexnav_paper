@@ -42,7 +42,8 @@
 
   <!-- ============== FRTree Planner ============== -->
   <!-- FRTree publishes /planning/pos_cmd as PoseStamped (position only),
-       remap it away so frtree_traj_cmd can publish PositionCommand (with PVA) instead -->
+       remap it away so frtree_traj_cmd can publish PositionCommand (with PVA) instead.
+       Also remap cmd_vel to prevent conflict with simple_odom_simulator. -->
   <node pkg="pop_planner" name="planner" type="pop_planner_node" output="screen"
         launch-prefix="bash -c 'sleep 3; exec $0 $@' ">
       <rosparam file="$(find pop_planner)/launch/config/pop_plan_fsm_param.yaml" command="load" />
@@ -50,16 +51,20 @@
       <remap from="local_map/odometry/state_estimation" to="/odom"/>
       <remap from="goal" to="/move_base_simple/goal"/>
       <remap from="/planning/pos_cmd" to="/planning/frtree_raw_pos_cmd"/>
+      <!-- Prevent FRTree's cmd_vel from conflicting with odom simulator -->
+      <remap from="cmd_vel" to="/planning/frtree_raw_cmd_vel"/>
+      <remap from="/cmd_vel" to="/planning/frtree_raw_cmd_vel"/>
   </node>
 
   <!-- ============== FRTree Trajectory PVA Commander ============== -->
-  <!-- Subscribes to FRTree's raw ALTRO trajectory (/traj_pose_vis PoseArray),
-       applies trapezoidal velocity profile (0→v_max→0),
-       publishes PositionCommand with full PVA -->
+  <!-- Subscribes to FRTree's localPlan (nav_msgs/Path, primary) and
+       /traj_pose_vis (PoseArray, fallback), fits cubic B-spline,
+       publishes PositionCommand with full PVA to drive odom simulator -->
   <node pkg="nav_exp_env" name="frtree_traj_cmd" type="frtree_traj_cmd.py" output="screen">
       <param name="max_vel" value="$(arg max_vel)" />
       <param name="max_acc" value="$(arg max_acc)" />
       <param name="traj_topic" value="/traj_pose_vis" />
+      <param name="path_topic" value="/localPlan" />
       <param name="fixed_z" value="$(arg planning_height)" />
   </node>
 

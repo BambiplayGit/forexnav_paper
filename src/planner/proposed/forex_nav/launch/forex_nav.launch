@@ -15,7 +15,9 @@
     </include>
     
     <!-- Include gen_viewpoint launch -->
-    <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch" />
+    <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch">
+        <arg name="planning_height" value="$(arg planning_height)" />
+    </include>
     
     <!-- ForexNav node -->
     <node pkg="forex_nav" type="forex_nav_node" name="forex_nav" output="screen">

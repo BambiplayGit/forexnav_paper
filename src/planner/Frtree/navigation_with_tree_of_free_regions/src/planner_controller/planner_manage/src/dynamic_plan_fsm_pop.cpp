@@ -34,13 +34,11 @@ static void toEulerAngle(const Eigen::Quaterniond &q, double &roll, double &pitc
     yaw = atan2(siny_cosp, cosy_cosp);
 }
 
-static void stopRobot(){
-    ROS_INFO("[Plan FSM]: Stop robot.");
+static void stopRobotCmdVelOnly(){
     geometry_msgs::Twist twist_cmd;
     twist_cmd.angular.x = 0.0;
     twist_cmd.angular.y = 0.0;
     twist_cmd.angular.z = 0.0;
-
     twist_cmd.linear.x = 0.0;
     twist_cmd.linear.y = 0.0;
     twist_cmd.linear.z = 0.0;
@@ -57,15 +55,17 @@ void DynamicReplanFSMPOP::init(ros::NodeHandle &nh)
     /*  fsm param  */
     node_ = nh;
     node_.param("fsm/goal_tolerance", goal_tolerance_, 0.15); // sim1/plan_manager/fsm/goal_tolerance
+    node_.param("fsm/goal_tolerance_direct", goal_tolerance_direct_, 0.3); // direct goal check threshold
     node_.param("fsm/goal_yaw_tolerance", goal_yaw_tolerance_, 0.1);
     node_.param("fsm/check_horizon", check_time_horizon_, 5.0);
     node_.param("fsm/planner/planning_distance", planning_distance_, 3.0);
     node_.param("fsm/controller/delta_time", delta_time_, 0.1);
     node_.param("fsm/controller/track_future_pts_num", track_fut_pts_num_, 10);
-    node_.param("plan_manager/max_vel", max_vel_, 0.6);
-    node_.param("plan_manager/max_acc", max_acc_, 0.4);
-    node_.param("plan_manager/max_yaw_vel", max_yaw_vel_, 0.8);
-    ROS_INFO("[Plan FSM]: max_vel = %.2f m/s, max_acc = %.2f m/s^2, max_yaw_vel = %.2f rad/s", max_vel_, max_acc_, max_yaw_vel_);
+    node_.param("plan_manager/max_vel", max_vel_, 2.0);
+    node_.param("plan_manager/max_acc", max_acc_, 2.0);
+    node_.param("plan_manager/pos_cmd_step_scale", pos_cmd_step_scale_, 1.0);
+    ROS_INFO("[Plan FSM]: max_vel = %.2f m/s, max_acc = %.2f m/s^2, pos_cmd_step_scale = %.2f", max_vel_, max_acc_, pos_cmd_step_scale_);
+    ROS_INFO("[Plan FSM]: goal_tolerance_direct = %.2f m", goal_tolerance_direct_);
 
     // planning_horizon_ = int(planning_time_ / delta_time_);
     // ROS_INFO("[Plan FSM]: planning_horizon: %d", planning_horizon_);
@@ -251,10 +251,7 @@ void DynamicReplanFSMPOP::execFSMCallback(const ros::TimerEvent &e)
             cost_to_goal_sorted_.clear();
             polys_sorted_.clear();
 
-            if (!planner_manager_->decomposePolys() || planner_manager_->polys_.empty()){
-                ROS_WARN("[Plan FSM]: decomposePolys failed or empty, skipping this plan cycle.");
-                return;
-            }
+            planner_manager_->decomposePolys();
             // planner_manager_->setLinearConstraintsandVertices(planner_manager_->polys_, planner_manager_->points_for_poly_);
 
             planner_manager_->sortPolyhedronArray(planner_manager_->polys_, planner_manager_->points_for_poly_, polys_sorted_, end_pos_, cost_to_goal_sorted_);            
@@ -382,13 +379,15 @@ std::cout << "back track nodes's center list[2]: " << planner_manager_->backtrac
         }
         cost_to_goal_sorted_.clear();
         polys_sorted_.clear();
-        if (!planner_manager_->decomposePolys() || planner_manager_->polys_.empty()){
-            ROS_WARN("[Plan FSM]: decomposePolys failed or empty during replan, skipping.");
-            return;
-        }
+        bool decompose_ok = planner_manager_->decomposePolys();
 std::cout << "size of polys: " << planner_manager_->polys_.size() << endl;
         // planner_manager_->setLinearConstraintsandVertices(planner_manager_->polys_, planner_manager_->points_for_poly_);
-        bool success = false;           
+        bool success = false;
+        if (!decompose_ok || planner_manager_->polys_.empty()) {
+            ROS_WARN("[Plan FSM]: decomposePolys failed or empty, skipping this replan cycle.");
+            changeFSMExecState(WAIT_GOAL, "FSM");
+            break;
+        }           
         // check if the intersection is good enough
         if (!planner_manager_->backtrackFlag_ && !planner_manager_->firstreplanafterbacktrack_){
             planner_manager_->sortPolyhedronArray(planner_manager_->polys_, planner_manager_->points_for_poly_, polys_sorted_, end_pos_, cost_to_goal_sorted_); 
@@ -586,7 +585,7 @@ std::cout << "back track nodes's center list[2]: " << planner_manager_->backtrac
             // planner_manager_->planFromCurrentTraj(planning_distance_, odom_pos_);
             // planner_manager_->local_traj_data_.getRefTraj(local_traj_list_);
             visualizePath(planner_manager_->global_data_.getGlobalPath(), vis_global_plan_pub_); // visualize global path
-            // visualizePath(planner_manager_->local_traj_data_.local_path_, vis_local_plan_pub_); // visualize local path
+            visualizePath(planner_manager_->local_traj_data_.local_path_, vis_local_plan_pub_); // visualize local path
             // visualizeTrajList(local_traj_list_, vis_local_wp_pub_);
             changeFSMExecState(EXEC_LOCAL, "FSM");
         }else{
@@ -608,15 +607,12 @@ std::cout << "back track nodes's center list[2]: " << planner_manager_->backtrac
             planner_manager_->planFromCurrentTraj(planning_distance_, odom_pos_);
             planner_manager_->local_traj_data_.getRefTraj(local_traj_list_);
 
-            // Trigger replan when robot is close to the local goal (last ALTRO waypoint)
-            if (!traj_from_altro_.empty()) {
-                Eigen::Vector3d local_goal = traj_from_altro_.back();
-                double dist_to_local_goal = (odom_pos_.head(2) - local_goal.head(2)).norm();
-                if (dist_to_local_goal < 0.2) {
-                    ROS_INFO("[Plan FSM]: Close to local goal (%.2fm), replan!", dist_to_local_goal);
-                    changeFSMExecState(REPLAN_TRAJ, "LOCAL_GOAL_NEAR");
-                }
-            }
+            visualizePath(planner_manager_->local_traj_data_.local_path_, vis_local_plan_pub_); // visualize local path
+            // int index = 0;
+            // double process_time = planner_manager_->local_traj_data_.nearestPointTime(odom_pos_, index);
+            // // if(planner_manager_->global_data_.getLastProcessTime() < process_time){
+            // planner_manager_->global_data_.setLastProcessTime(process_time);
+// std::cout << "EXEC_LOCAL" << std::endl;
         }
     }
     
@@ -627,17 +623,6 @@ void DynamicReplanFSMPOP::replanCheckCallback(const ros::TimerEvent &e)
 {
     if (exec_state_ == EXEC_LOCAL)
     {
-        // first check if there's obstacle in the front
-        double dist;
-        // bool   safe = planner_manager_->checkTrajCollision(dist, start_collision_index_);
-        // check collision
-        // if (!safe) {
-        //     ROS_WARN("[Plan FSM]: Local trajectory is not safe, replan!");
-        //     early_replan_flag_ = true;
-        //     changeFSMExecState(REPLAN_TRAJ, "SAFETY");
-        // }
-
-        
 //         // if in backtracking
         if (planner_manager_->backtrackFlag_){
 //             Eigen::Vector3d sub_goal = planner_manager_->backtrack_node_->center_list_[2];
@@ -668,7 +653,6 @@ void DynamicReplanFSMPOP::replanCheckCallback(const ros::TimerEvent &e)
                     ROS_INFO("[Plan FSM]: No interesting direction, replan!");
                     if_no_interesting_rays_1_ = false;
                     if_no_interesting_rays_2_ = false;
-                    // planner_manager_->backtrackFlag_ = true;
                     changeFSMExecState(REPLAN_TRAJ, "REPLAN");
                 }
             }
@@ -780,8 +764,8 @@ void DynamicReplanFSMPOP::trackTrajCallback(const ros::TimerEvent &e)
         track_index = 3;
     }
 
-    // track waypoint (ensure track_index is in range)
-    if (local_traj_list_.size() > (size_t)track_index)
+    // track waypoint 
+    if (local_traj_list_.size() > 0)
     {
         geometry_msgs::PoseStamped local_wp;
         local_wp.header.frame_id = "map";
@@ -801,12 +785,24 @@ void DynamicReplanFSMPOP::trackTrajCallback(const ros::TimerEvent &e)
 }
 
 void DynamicReplanFSMPOP::publishCmdCallback(const ros::TimerEvent &e){
-    if (exec_state_ == WAIT_GOAL || exec_state_ == INIT || exec_state_ == GEN_NEW_GLOBAL)
-        return;
-
-    // Need at least 2 points for velocity computation and safe indexing
-    if (traj_from_altro_.size() < 2 || yaw_traj_from_altro_.size() != traj_from_altro_.size()) {
-        ROS_WARN_THROTTLE(1.0, "[Plan FSM]: traj_from_altro_ empty or inconsistent, skip publish cmd.");
+    if (exec_state_ == WAIT_GOAL || exec_state_ == INIT || exec_state_ == GEN_NEW_GLOBAL || exec_state_ == REPLAN_TRAJ) {
+        // CRITICAL: Keep publishing pos_cmd at current position to prevent the odom simulator
+        // from continuing to track the last forward pos_cmd (0.3s timeout would push into walls)
+        if (have_odom_) {
+            stopRobotCmdVelOnly();
+            geometry_msgs::PoseStamped hold_cmd;
+            hold_cmd.header.stamp = ros::Time::now();
+            hold_cmd.header.frame_id = "odom";
+            hold_cmd.pose.position.x = odom_pos_(0);
+            hold_cmd.pose.position.y = odom_pos_(1);
+            hold_cmd.pose.position.z = odom_pos_(2);
+            Eigen::Quaterniond q_hold(Eigen::AngleAxisd(odom_yaw_, Eigen::Vector3d::UnitZ()));
+            hold_cmd.pose.orientation.w = q_hold.w();
+            hold_cmd.pose.orientation.x = q_hold.x();
+            hold_cmd.pose.orientation.y = q_hold.y();
+            hold_cmd.pose.orientation.z = q_hold.z();
+            pos_cmd_pub_.publish(hold_cmd);
+        }
         return;
     }
 
@@ -824,10 +820,8 @@ void DynamicReplanFSMPOP::publishCmdCallback(const ros::TimerEvent &e){
     }
     double dt = plan_time_ / 10;
     Eigen::Vector3d current_desired_vel;
-    const size_t n = traj_from_altro_.size();
-    if (index + 3 > (int)n){
-        // Near end: use velocity between last two points (n>=2 guaranteed by early return)
-        current_desired_vel = (traj_from_altro_[n - 1] - traj_from_altro_[n - 2]) / dt;
+    if (index + 3 > traj_from_altro_.size()){
+        current_desired_vel = (traj_from_altro_[traj_from_altro_.size()] -  traj_from_altro_[traj_from_altro_.size() - 1]) / dt;
     }
     else{
         current_desired_vel = (traj_from_altro_[index+1] -  traj_from_altro_[index]) / dt;
@@ -840,7 +834,8 @@ void DynamicReplanFSMPOP::publishCmdCallback(const ros::TimerEvent &e){
         twist_cmd.linear.x = (traj_from_altro_[traj_from_altro_.size() - 1](0) - odom_pos_(0)) * 1.5 + ( - odom_vel_(0)) * 0.1;
         twist_cmd.linear.y = (traj_from_altro_[traj_from_altro_.size() - 1](1) - odom_pos_(1)) * 1.2 + ( - odom_vel_(1)) * 0.1;
         twist_cmd.linear.z = (traj_from_altro_[traj_from_altro_.size() - 1](2) - odom_pos_(2)) * 0.2;
-        twist_cmd.angular.z = (yaw_traj_from_altro_[traj_from_altro_.size() - 1] - odom_yaw_) * 1.2;
+        double target_yaw = yaw_traj_from_altro_[traj_from_altro_.size() - 1];
+        twist_cmd.angular.z = (target_yaw - odom_yaw_) * 1.2;
 // std::cout << "pos error: " << (traj_from_altro_[traj_from_altro_.size() - 1] - odom_pos_).transpose() << endl;
 // std::cout << "pos error norm: " << (traj_from_altro_[traj_from_altro_.size() - 1] - odom_pos_).norm() << endl;
 // std::cout << "yaw error: " << (yaw_traj_from_altro_[traj_from_altro_.size() - 1] - odom_yaw_) << endl;
@@ -856,7 +851,8 @@ void DynamicReplanFSMPOP::publishCmdCallback(const ros::TimerEvent &e){
         twist_cmd.linear.x = (traj_from_altro_[index+1](0) - odom_pos_(0)) * 1.5 + ( - odom_vel_(0)) * 0.1;
         twist_cmd.linear.y = (traj_from_altro_[index+1](1) - odom_pos_(1)) * 1.2 + ( - odom_vel_(1)) * 0.1;
         twist_cmd.linear.z = (traj_from_altro_[index+1](2) - odom_pos_(2)) * 0.2;
-        twist_cmd.angular.z = (yaw_traj_from_altro_[index+1] - odom_yaw_) * 1.2;
+        double target_yaw = yaw_traj_from_altro_[index+1];
+        twist_cmd.angular.z = (target_yaw - odom_yaw_) * 1.2;
 // std::cout << "pos error: " << (traj_from_altro_[index+1] - odom_pos_).transpose()    << endl;
 // std::cout << "pos error norm: " << (traj_from_altro_[index+1] - odom_pos_).norm() << endl;
 // std::cout << "yaw error: " << (yaw_traj_from_altro_[index+1] - odom_yaw_) << endl;
@@ -874,7 +870,7 @@ void DynamicReplanFSMPOP::publishCmdCallback(const ros::TimerEvent &e){
     twist_cmd.linear.y = linear_vel_robot(1);
     twist_cmd.linear.z = linear_vel_robot(2);
 
-    // clamp to plan_manager/max_vel and plan_manager/max_yaw_vel (aligned with ALTRO bounds)
+    // linear velocity has a limit in three directions (aligned with max_vel_)
     if (twist_cmd.linear.x > max_vel_)
         twist_cmd.linear.x = max_vel_;
     if (twist_cmd.linear.x < -max_vel_)
@@ -883,14 +879,15 @@ void DynamicReplanFSMPOP::publishCmdCallback(const ros::TimerEvent &e){
         twist_cmd.linear.y = max_vel_;
     if (twist_cmd.linear.y < -max_vel_)
         twist_cmd.linear.y = -max_vel_;
-    if (twist_cmd.linear.z > max_vel_)
-        twist_cmd.linear.z = max_vel_;
-    if (twist_cmd.linear.z < -max_vel_)
-        twist_cmd.linear.z = -max_vel_;
-    if (twist_cmd.angular.z > max_yaw_vel_)
-        twist_cmd.angular.z = max_yaw_vel_;
-    if (twist_cmd.angular.z < -max_yaw_vel_)
-        twist_cmd.angular.z = -max_yaw_vel_;
+    if (twist_cmd.linear.z > 0.1)
+        twist_cmd.linear.z = 0.1;
+    if (twist_cmd.linear.z < -0.1)
+        twist_cmd.linear.z = -0.1; 
+    // angular velocity limit: 2.09 rad/s (aligned with odom simulator max_yaw_rate)
+    if(twist_cmd.angular.z > 2.09)
+        twist_cmd.angular.z = 2.09;
+    if(twist_cmd.angular.z < -2.09)
+        twist_cmd.angular.z = -2.09;
 
 std::cout << "twist cmd: " << twist_cmd.linear.x << " " << twist_cmd.linear.y << " " << twist_cmd.angular.z << endl;
     whole_trajectory.push_back(odom_pos_);
@@ -906,23 +903,23 @@ std::cout << "twist cmd: " << twist_cmd.linear.x << " " << twist_cmd.linear.y <<
     Eigen::Vector3d target_pos = traj_from_altro_[target_idx];
     double target_yaw = yaw_traj_from_altro_[target_idx];
     
-    // Interpolate: move a fixed step towards target based on max_vel
+    // Interpolate: move a fixed step towards target (step_scale > 1 => larger step, faster)
     double cmd_dt = 0.02;  // 50Hz callback
-    double step_size = max_vel_ * cmd_dt;  // meters per callback
+    double step_size = max_vel_ * cmd_dt * std::max(0.1, pos_cmd_step_scale_);
     Eigen::Vector3d dir = target_pos - odom_pos_;
     double dist = dir.head<2>().norm();  // only consider x-y distance
     
     Eigen::Vector3d interp_pos;
     double interp_yaw;
-    if (dist > step_size) {
+    if (dist > step_size && dist > 1e-6) {  // avoid division by zero
         // Interpolate position
         interp_pos = odom_pos_ + dir.normalized() * step_size;
         interp_pos(2) = target_pos(2);  // keep target z
-        // Interpolate yaw
+        // Interpolate yaw (scale yaw step with step_scale so turn keeps up)
         double yaw_diff = target_yaw - odom_yaw_;
         while (yaw_diff > M_PI) yaw_diff -= 2.0 * M_PI;
         while (yaw_diff < -M_PI) yaw_diff += 2.0 * M_PI;
-        double yaw_step = 0.05;  // rad per callback
+        double yaw_step = 0.05 * std::max(0.1, pos_cmd_step_scale_);  // rad per callback
         if (fabs(yaw_diff) > yaw_step) {
             interp_yaw = odom_yaw_ + (yaw_diff > 0 ? yaw_step : -yaw_step);
         } else {
@@ -1154,8 +1151,6 @@ for (int i = 0; i < ref_yaw.size(); i++){
 // ROS_WARN("Start to solve the ALTRO problem11");        
         /////////////build the problem////////////////////////////////////////////////////
         QuadrupedalProblem_ptr_ = std::make_unique<altro::problems::QuadrupedalProblem>();
-        QuadrupedalProblem_ptr_->v_bnd = max_vel_;
-        QuadrupedalProblem_ptr_->vyaw_bnd = max_yaw_vel_;
         if (num_segments2 == 0 || num_segments1 == 0){
             QuadrupedalProblem_ptr_->xf << center_list_[1](0), center_list_[1](1), 0.3, 0, 0, ref_yaw[10];
         }
@@ -1281,6 +1276,7 @@ for (int i = 0; i < yaw_traj_from_altro_.size(); i++){
         //////////////////////////////////////////END OF ALTRO SOLVER/////////////////////////////////////////////////////
 
     visualizePath(ref_path, vis_local_plan_pub_);
+    
     traj_from_altro_ = ref_path;
 
     // put the ref path and ref angle into pose array and publish
@@ -1313,10 +1309,6 @@ for (int i = 0; i < yaw_traj_from_altro_.size(); i++){
 bool DynamicReplanFSMPOP::achieve_goal(){
     // distance to goal
     if (planner_manager_->backtrackFlag_){
-        if (planner_manager_->global_graph_ptr_->points_for_backtrack_.empty()) {
-            ROS_WARN_THROTTLE(1.0, "[Plan FSM]: backtrack flag set but points_for_backtrack_ empty.");
-            return false;
-        }
         double dist_to_goal, ang_to_goal;
         Eigen::Vector3d sub_goal = planner_manager_->global_graph_ptr_->points_for_backtrack_[0];
         if(sub_goal[2] > 0.32){
@@ -1364,14 +1356,15 @@ std::cout << "whether current node is root: " << planner_manager_->backtrack_nod
         double dist_to_goal, ang_to_goal;
         dist_to_goal = (odom_pos_ - end_pos_).norm();
         // ang_to_goal = std::abs(odom_yaw_ - goal_yaw_);
-std::cout << "dist to goal: " << dist_to_goal << endl;
-        // reached goal
-        if (dist_to_goal < goal_tolerance_ * 3)
+        std::cout << "dist to goal: " << dist_to_goal << endl;
+        // reached goal - use direct goal tolerance (more reliable)
+        double tolerance = goal_tolerance_direct_ > 0 ? goal_tolerance_direct_ : (goal_tolerance_ * 3);
+        if (dist_to_goal < tolerance)
         {
             planner_manager_->local_traj_data_.reset();
             have_goal_ = false;
             stopRobot();
-            ROS_INFO("[Plan FSM]: Reach Goal, wait goal");
+            ROS_INFO("[Plan FSM]: Reach Goal (dist=%.3f < %.3f), wait goal", dist_to_goal, tolerance);
             changeFSMExecState(WAIT_GOAL, "FSM");
             return true;
         }
@@ -1382,6 +1375,29 @@ std::cout << "dist to goal: " << dist_to_goal << endl;
 
 
 /* --------------------helper functions---------------------------- */
+void DynamicReplanFSMPOP::stopRobot()
+{
+    ROS_INFO("[Plan FSM]: Stop robot.");
+    // 1. Publish zero velocity
+    stopRobotCmdVelOnly();
+    
+    // 2. CRITICAL: Also publish pos_cmd at CURRENT position to override the last forward target.
+    //    Without this, the odom simulator keeps PD-tracking toward the last pos_cmd for 0.3s,
+    //    which can push the robot into walls.
+    geometry_msgs::PoseStamped stop_pos_cmd;
+    stop_pos_cmd.header.stamp = ros::Time::now();
+    stop_pos_cmd.header.frame_id = "odom";
+    stop_pos_cmd.pose.position.x = odom_pos_(0);
+    stop_pos_cmd.pose.position.y = odom_pos_(1);
+    stop_pos_cmd.pose.position.z = odom_pos_(2);
+    Eigen::Quaterniond q_stop(Eigen::AngleAxisd(odom_yaw_, Eigen::Vector3d::UnitZ()));
+    stop_pos_cmd.pose.orientation.w = q_stop.w();
+    stop_pos_cmd.pose.orientation.x = q_stop.x();
+    stop_pos_cmd.pose.orientation.y = q_stop.y();
+    stop_pos_cmd.pose.orientation.z = q_stop.z();
+    pos_cmd_pub_.publish(stop_pos_cmd);
+}
+
 void DynamicReplanFSMPOP::changeFSMExecState(FSM_EXEC_STATE new_state, std::string pos_call)
 {
     string state_str[5] = {"INIT", "WAIT_GOAL", "GEN_NEW_GLOBAL", "REPLAN_TRAJ", "EXEC_LOCAL"};
@@ -1461,7 +1477,7 @@ void DynamicReplanFSMPOP::publishGlobalGraph(const ros::TimerEvent &e)
     ray_list.color.a = 1.0;
 
     geometry_msgs::Point p1, p2;
-    for (size_t i = 0; i + 1 < replan_points_.size(); i += 2)
+    for (int i = 0; i < replan_points_.size(); i += 2)
     {
         p1.x = replan_points_[i](0);
         p1.y = replan_points_[i](1);
@@ -1489,7 +1505,7 @@ void DynamicReplanFSMPOP::publishGlobalGraph(const ros::TimerEvent &e)
     ray_list2.color.r = 1.0;
     ray_list2.color.a = 1.0;
 
-    for (size_t i = 0; i + 1 < planner_manager_->points_for_decompose_.size(); i += 2)
+    for (int i = 0; i < planner_manager_->points_for_decompose_.size(); i += 2)
     {
         p1.x = planner_manager_->points_for_decompose_[i](0);
         p1.y = planner_manager_->points_for_decompose_[i](1);
