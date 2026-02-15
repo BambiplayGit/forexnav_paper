@@ -218,6 +218,7 @@ int ForexNavManager::selectBestViewpoint(
   std::vector<double> all_curve_costs;  // Cost 3: curve dynamics cost
   std::vector<double> all_homo_costs;   // Cost 4: homotopy consistency cost
   std::vector<double> all_v_limits;     // Velocity limits from curve cost
+  std::vector<std::vector<Vector3d>> all_pred_paths;  // Cached A* paths (reused for visualization)
 
   for (size_t i = 0; i < viewpoints.size(); ++i) {
     // [Cost 2] Distance cost
@@ -256,6 +257,8 @@ int ForexNavManager::selectBestViewpoint(
     } else {
       all_pred_costs.push_back(-1.0);  // Mark as invalid
     }
+    // Cache the path for visualization reuse (avoids redundant A* searches later)
+    all_pred_paths.push_back(std::move(pred_path));
   }
 
   // Compute min/max for normalization
@@ -317,15 +320,15 @@ int ForexNavManager::selectBestViewpoint(
   std::sort(idx_cost.begin(), idx_cost.end(),
             [](const auto& a, const auto& b) { return a.second < b.second; });
 
-  // Plan candidate paths for visualization (viewpoint -> goal)
+  // Reuse cached A* paths for visualization (no redundant A* searches)
   candidate_paths_.clear();
   int n_vis = nav_param_.vis_candidate_path_count_;
   int n_take = (n_vis < 0) ? static_cast<int>(idx_cost.size())
                            : std::min(n_vis, static_cast<int>(idx_cost.size()));
   for (int k = 0; k < n_take; ++k) {
-    std::vector<Vector3d> path;
-    if (planPath(viewpoints[idx_cost[k].first].pos_, goal_pos, path)) {
-      candidate_paths_.push_back(path);
+    size_t vp_idx = idx_cost[k].first;
+    if (vp_idx < all_pred_paths.size() && !all_pred_paths[vp_idx].empty()) {
+      candidate_paths_.push_back(all_pred_paths[vp_idx]);
     }
   }
 

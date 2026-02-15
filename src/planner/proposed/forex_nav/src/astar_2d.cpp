@@ -1,9 +1,12 @@
 #include "forex_nav/astar_2d.h"
 #include <algorithm>
+#include <iostream>
 
 namespace forex_nav {
 
-Astar2D::Astar2D() : resolution_(0.1), fixed_height_(1.0) {
+Astar2D::Astar2D()
+    : resolution_(0.1), fixed_height_(1.0), max_expansions_(80000),
+      dist_field_dirty_(true), dist_field_w_(0), dist_field_h_(0) {
 }
 
 Astar2D::~Astar2D() {
@@ -11,6 +14,7 @@ Astar2D::~Astar2D() {
 
 void Astar2D::setMap(const nav_msgs::OccupancyGrid::ConstPtr& map) {
   map_ = map;
+  dist_field_dirty_ = true;  // Mark distance field for lazy recomputation
 }
 
 void Astar2D::setResolution(double resolution) {
@@ -21,8 +25,72 @@ void Astar2D::setFixedHeight(double height) {
   fixed_height_ = height;
 }
 
+void Astar2D::setMaxExpansions(int max_exp) {
+  max_expansions_ = max_exp;
+}
+
 void Astar2D::reset() {
-  // Clear any internal state if needed
+  dist_field_.clear();
+  dist_field_dirty_ = true;
+}
+
+// ----------------------------------------------------------------
+//  Precomputed distance field: BFS from all obstacle cells
+//  Chebyshev distance (8-connected), capped at check_radius.
+//  Complexity: O(W*H) — runs once per map update, lazily.
+// ----------------------------------------------------------------
+void Astar2D::computeDistanceField() {
+  if (!map_) return;
+
+  const int w = static_cast<int>(map_->info.width);
+  const int h = static_cast<int>(map_->info.height);
+  const int total = w * h;
+  const int check_radius = 5;  // Same as original getObstacleProximityCost
+
+  dist_field_w_ = w;
+  dist_field_h_ = h;
+  dist_field_.assign(total, check_radius + 1);
+
+  // Seed BFS with all obstacle cells
+  std::queue<int> q;
+  for (int i = 0; i < total; ++i) {
+    if (map_->data[i] >= 50) {
+      dist_field_[i] = 0;
+      q.push(i);
+    }
+  }
+
+  // 8-connected BFS: propagate Chebyshev distance
+  const int dx8[8] = {1, -1, 0, 0, 1, -1, 1, -1};
+  const int dy8[8] = {0, 0, 1, -1, 1, 1, -1, -1};
+
+  while (!q.empty()) {
+    int idx = q.front();
+    q.pop();
+    int cx = idx % w;
+    int cy = idx / w;
+    int cd = dist_field_[idx];
+    if (cd >= check_radius) continue;  // Don't propagate beyond radius
+
+    for (int i = 0; i < 8; ++i) {
+      int nx = cx + dx8[i];
+      int ny = cy + dy8[i];
+      if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+      int nidx = ny * w + nx;
+      int nd = cd + 1;
+      if (nd < dist_field_[nidx]) {
+        dist_field_[nidx] = nd;
+        q.push(nidx);
+      }
+    }
+  }
+}
+
+void Astar2D::ensureDistanceField() {
+  if (dist_field_dirty_ && map_) {
+    computeDistanceField();
+    dist_field_dirty_ = false;
+  }
 }
 
 bool Astar2D::search(const Eigen::Vector3d& start, const Eigen::Vector3d& goal,
@@ -32,6 +100,9 @@ bool Astar2D::search(const Eigen::Vector3d& start, const Eigen::Vector3d& goal,
   if (!map_) {
     return false;
   }
+  
+  // Ensure distance field is up-to-date (lazy computation)
+  ensureDistanceField();
   
   Eigen::Vector2i start_map = worldToMap(start);
   Eigen::Vector2i goal_map = worldToMap(goal);
@@ -65,6 +136,8 @@ bool Astar2D::search(const Eigen::Vector3d& start, const Eigen::Vector3d& goal,
   const int dy[8] = {0, 0, 1, -1, 1, 1, -1, -1};
   const double cost[8] = {1.0, 1.0, 1.0, 1.0, 1.414, 1.414, 1.414, 1.414};
   
+  int expansions = 0;
+  
   while (!open_set.empty()) {
     Node current = open_set.top();
     open_set.pop();
@@ -74,6 +147,14 @@ bool Astar2D::search(const Eigen::Vector3d& start, const Eigen::Vector3d& goal,
       continue;
     }
     closed_set[current_hash] = true;
+    
+    ++expansions;
+    if (expansions > max_expansions_) {
+      // Expansion limit reached — return best-effort path to closest node
+      std::cerr << "[Astar2D] Max expansions (" << max_expansions_ 
+                << ") reached, search aborted" << std::endl;
+      return false;
+    }
     
     // Check if reached goal
     if (std::abs(current.x - goal_map.x()) <= 1 && std::abs(current.y - goal_map.y()) <= 1) {
@@ -95,7 +176,7 @@ bool Astar2D::search(const Eigen::Vector3d& start, const Eigen::Vector3d& goal,
         continue;
       }
       
-      // Add obstacle proximity cost to keep path away from walls
+      // O(1) obstacle proximity cost from precomputed distance field
       double obstacle_cost = getObstacleProximityCost(nx, ny);
       double tentative_g = current.g_score + cost[i] + obstacle_cost;
       
@@ -197,39 +278,26 @@ int Astar2D::hash(int x, int y) const {
   return y * 100000 + x;  // Simple hash function
 }
 
+// ----------------------------------------------------------------
+//  O(1) obstacle proximity cost using precomputed distance field.
+//  Original: O(121) per call (checked 11x11 window every time).
+// ----------------------------------------------------------------
 double Astar2D::getObstacleProximityCost(int x, int y) const {
-  if (!map_) return 0.0;
-  
-  // Check proximity to obstacles in a radius
-  const int check_radius = 5;  // cells (0.5m at 0.1m resolution)
-  const double weight = 2.0;   // Cost weight for proximity
-  
-  double min_dist_sq = check_radius * check_radius + 1;
-  
-  for (int dx = -check_radius; dx <= check_radius; ++dx) {
-    for (int dy = -check_radius; dy <= check_radius; ++dy) {
-      int nx = x + dx;
-      int ny = y + dy;
-      
-      if (isObstacle(nx, ny)) {
-        double dist_sq = dx * dx + dy * dy;
-        if (dist_sq < min_dist_sq) {
-          min_dist_sq = dist_sq;
-        }
-      }
+  const int check_radius = 5;
+  const double weight = 2.0;
+
+  // Use precomputed distance field (Chebyshev distance in cells)
+  if (!dist_field_.empty() && x >= 0 && x < dist_field_w_ &&
+      y >= 0 && y < dist_field_h_) {
+    int d = dist_field_[y * dist_field_w_ + x];
+    if (d < check_radius) {
+      double normalized_dist = static_cast<double>(d) / check_radius;
+      return weight * (1.0 - normalized_dist) * (1.0 - normalized_dist);
     }
+    return 0.0;
   }
-  
-  // Cost inversely proportional to distance from obstacle
-  // Closer to obstacle = higher cost
-  if (min_dist_sq < check_radius * check_radius) {
-    double min_dist = std::sqrt(min_dist_sq);
-    // Cost: weight * (1 - dist/max_dist)^2
-    double normalized_dist = min_dist / check_radius;
-    double cost = weight * (1.0 - normalized_dist) * (1.0 - normalized_dist);
-    return cost;
-  }
-  
+
+  // Fallback: no distance field available (should not happen in normal operation)
   return 0.0;
 }
 

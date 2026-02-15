@@ -19,6 +19,7 @@ public:
   void setMap(const nav_msgs::OccupancyGrid::ConstPtr& map);
   void setResolution(double resolution);
   void setFixedHeight(double height);
+  void setMaxExpansions(int max_exp);
   
   bool search(const Eigen::Vector3d& start, const Eigen::Vector3d& goal, 
               std::vector<Eigen::Vector3d>& path);
@@ -45,6 +46,16 @@ private:
   nav_msgs::OccupancyGrid::ConstPtr map_;
   double resolution_;
   double fixed_height_;
+  int max_expansions_;        // Max A* node expansions (prevents full-map exploration)
+  
+  // Precomputed distance field: Chebyshev distance (in cells) to nearest obstacle
+  // Computed lazily (once per map update, only when A* runs)
+  std::vector<int> dist_field_;
+  bool dist_field_dirty_;
+  int dist_field_w_, dist_field_h_;
+  
+  void ensureDistanceField();
+  void computeDistanceField();
   
   // Helper functions
   bool isInMap(int x, int y) const;
@@ -55,7 +66,7 @@ private:
                        std::vector<Eigen::Vector3d>& path) const;
   int hash(int x, int y) const;
   
-  // Get cost based on proximity to obstacles (keeps path away from walls)
+  // Get cost based on proximity to obstacles (O(1) lookup from precomputed field)
   double getObstacleProximityCost(int x, int y) const;
 };
 

@@ -114,6 +114,10 @@ class LocalSensingNode {
     // 预计算膨胀半径对应的2D栅格格数 (两种模式通用)
     inflate_r_2d_ = (inflate_radius_ > 1e-6) ? (int)(inflate_radius_ / occ_res_ + 0.5) : 0;
 
+    // 膨胀地图发布频率节流 (大地图膨胀开销大，无需与感知同频)
+    inflate_publish_interval_ = 0.1;  // 10Hz, 远低于感知60Hz
+    last_inflate_time_ = ros::Time(0);
+
     // ---- 订阅器 ----
     map_sub_ = nh.subscribe("global_map", 1, &LocalSensingNode::mapCallback, this);
     odom_sub_ = nh.subscribe("odometry", 50, &LocalSensingNode::odomCallback, this);
@@ -369,9 +373,13 @@ class LocalSensingNode {
     occ_pub_.publish(grid);
     publishOccupancyGridImage(grid);
 
-    // 发布膨胀版2D栅格
+    // 发布膨胀版2D栅格 (节流: 大地图膨胀开销大, 按10Hz发布)
     if (inflate_radius_ > 1e-6) {
-      inflateAndPublish2DGrid(grid);
+      ros::Time now = ros::Time::now();
+      if ((now - last_inflate_time_).toSec() >= inflate_publish_interval_) {
+        last_inflate_time_ = now;
+        inflateAndPublish2DGrid(grid);
+      }
     }
 
     if (publish_cloud_ && !hit_cloud.points.empty()) {
@@ -459,7 +467,11 @@ class LocalSensingNode {
       publishSlicedOccupancyGrid();
 
       if (inflate_radius_ > 1e-6) {
-        inflateAndPublish2DGrid(last_slice_grid_);
+        ros::Time now = ros::Time::now();
+        if ((now - last_inflate_time_).toSec() >= inflate_publish_interval_) {
+          last_inflate_time_ = now;
+          inflateAndPublish2DGrid(last_slice_grid_);
+        }
       }
 
       if (publish_cloud_ && !all_hit_cloud.points.empty()) {
@@ -985,6 +997,8 @@ class LocalSensingNode {
   double inflate_radius_ = 0.3;                  // 膨胀半径 (meters)
   int inflate_r_2d_ = 0;                         // 2D膨胀格数 (occ_res单位)
   int inflate_r_voxels_ = 0;                     // 3D膨胀体素数 (voxel_res单位)
+  double inflate_publish_interval_ = 0.1;        // 膨胀地图发布间隔 (秒, 10Hz)
+  ros::Time last_inflate_time_;                  // 上次膨胀发布时间
 
   // ---- FOV可视化参数 ----
   bool publish_fov_marker_ = true;
