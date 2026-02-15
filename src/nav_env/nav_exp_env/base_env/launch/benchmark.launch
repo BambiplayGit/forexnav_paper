@@ -287,4 +287,11 @@
         <arg name="trans_z" value="$(arg trans_z)" />
     </include>
 
+    <!-- ==================== Benchmark Metrics Recorder ==================== -->
+    <node pkg="nav_exp_env" type="benchmark_recorder.py" name="benchmark_recorder" output="screen">
+        <param name="algorithm" value="$(arg algorithm)" />
+        <param name="map_name"  value="$(arg map_name)" />
+        <param name="goal_reach_threshold" value="0.2" />
+    </node>
+
 </launch>

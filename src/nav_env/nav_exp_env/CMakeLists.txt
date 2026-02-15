@@ -25,6 +25,7 @@ catkin_install_python(PROGRAMS
   base_env/scripts/gait_joint_publisher.py
   base_env/scripts/frtree_traj_cmd.py
   base_env/scripts/rrtx_traj_cmd.py
+  base_env/scripts/benchmark_recorder.py
   cogniplan/scripts/rl_planner_nav.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
