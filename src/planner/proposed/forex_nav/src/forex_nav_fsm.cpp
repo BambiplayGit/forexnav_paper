@@ -16,6 +16,7 @@ ForexNavFSM::ForexNavFSM(ros::NodeHandle& nh, ros::NodeHandle& pnh)
   
   // Initialize last_replan_time_ to zero (will be set when first planning succeeds)
   last_replan_time_ = ros::Time(0);
+  last_map_update_time_ = ros::Time(0);
   
   state_str_ = {"INIT", "WAIT_TRIGGER", "PLAN_TRAJ", "EXEC_TRAJ", "FINISH"};
 }
@@ -31,6 +32,7 @@ void ForexNavFSM::init() {
   pnh_.param("fsm/replan_time", fp_->replan_time_, fp_->replan_time_);
   pnh_.param("fsm/goal_reached_threshold", fp_->goal_reached_threshold_, fp_->goal_reached_threshold_);
   pnh_.param("fsm/no_replan_dist_to_goal", fp_->no_replan_dist_to_goal_, fp_->no_replan_dist_to_goal_);
+  pnh_.param("fsm/viewpoint_reached_threshold", fp_->viewpoint_reached_threshold_, fp_->viewpoint_reached_threshold_);
   
   auto& nav_param = manager_->getNavParam();
   pnh_.param("nav/w_dist", nav_param.w_dist_, nav_param.w_dist_);
@@ -43,6 +45,8 @@ void ForexNavFSM::init() {
   pnh_.param("nav/traj_dt", nav_param.traj_dt_, nav_param.traj_dt_);
   pnh_.param("nav/vis_candidate_path_count", nav_param.vis_candidate_path_count_, nav_param.vis_candidate_path_count_);
   pnh_.param("nav/planning_height", nav_param.planning_height_, nav_param.planning_height_);
+  pnh_.param("nav/local_goal_max_dist", nav_param.local_goal_max_dist_, nav_param.local_goal_max_dist_);
+  pnh_.param("nav/astar_viewpoint_limit", nav_param.astar_viewpoint_limit_, nav_param.astar_viewpoint_limit_);
   
   // MINCO trajectory optimization parameters
   pnh_.param("minco/weight_time", nav_param.minco_weight_time_, nav_param.minco_weight_time_);
@@ -147,7 +151,13 @@ void ForexNavFSM::viewpointsCallback(const geometry_msgs::PoseArray::ConstPtr& m
 }
 
 void ForexNavFSM::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) {
-  // Update map for A* planning
+  // Throttle map updates for planning performance (avoid redundant updates)
+  ros::Time now = ros::Time::now();
+  if (last_map_update_time_.toSec() > 0 &&
+      (now - last_map_update_time_).toSec() < 0.2) {
+    return;
+  }
+  last_map_update_time_ = now;
   manager_->setMap(msg);
 }
 
@@ -255,6 +265,20 @@ void ForexNavFSM::execTrajCallback(const ros::TimerEvent&) {
       publishFinalPosition();
       transitState(FINISH, "execTrajCallback");
       return;
+    }
+    
+    // Replan when reached current viewpoint/local goal (do not wait for full trajectory to finish)
+    if (!traj_positions_.empty()) {
+      double dist_to_viewpoint = (fd_->odom_pos_ - traj_positions_.back()).norm();
+      if (dist_to_viewpoint < fp_->viewpoint_reached_threshold_) {
+        double time_since_last_replan = (ros::Time::now() - last_replan_time_).toSec();
+        if (time_since_last_replan > fp_->replan_time_) {
+          ROS_INFO("[REPLAN] Reached viewpoint (dist=%.3f m < %.3f m), replanning immediately",
+                    dist_to_viewpoint, fp_->viewpoint_reached_threshold_);
+          last_replan_time_ = ros::Time::now();
+          transitState(PLAN_TRAJ, "execTrajCallback");
+        }
+      }
     }
     
     // Replan if traj is almost fully executed

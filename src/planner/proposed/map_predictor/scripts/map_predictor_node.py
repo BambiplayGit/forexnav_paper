@@ -460,7 +460,7 @@ class InpaintNode:
         now = rospy.get_time()
         if not hasattr(self, '_last_t'):
             self._last_t = 0
-        if now - self._last_t < 0.5:
+        if now - self._last_t < 1.0:  # Throttle to 1Hz for planning performance
             return
         self._last_t = now
         self._run_pipeline(cv_img_clean, map_msg.header)

@@ -55,10 +55,11 @@ struct FSMParam {
   double replan_time_;     // Minimum time between replans (s)
   double goal_reached_threshold_;  // Distance to goal to consider reached (m)
   double no_replan_dist_to_goal_;  // Disable replanning when close to goal (m)
+  double viewpoint_reached_threshold_;  // When dist to current viewpoint/local goal < this, replan immediately (m)
   
   FSMParam()
     : replan_thresh1_(0.1), replan_thresh2_(0.3), replan_thresh3_(3.0), replan_time_(0.5),
-      goal_reached_threshold_(0.5), no_replan_dist_to_goal_(1.5) {}
+      goal_reached_threshold_(0.5), no_replan_dist_to_goal_(1.5), viewpoint_reached_threshold_(0.5) {}
 };
 
 // Navigation parameters
@@ -83,6 +84,12 @@ struct NavParam {
   // Height
   double planning_height_;  // 规划高度 (m)
   
+  // Local goal: when selected viewpoint is farther than this (m), use point at this distance along A* path as local goal
+  double local_goal_max_dist_;
+  
+  // Performance: max number of viewpoints to run A* for (rest use Euclidean fallback). -1 = all
+  int astar_viewpoint_limit_;
+  
   // MINCO trajectory optimization parameters
   double minco_weight_time_;         // 时间代价权重 (越大越压缩时间, 轨迹越激进)
   double minco_weight_energy_;       // 能量/平滑权重 (越大越光滑)
@@ -98,7 +105,8 @@ struct NavParam {
     : w_dist_(2.0), w_pred_(1.5), w_curve_(0.3), w_homo_(0.3),
       max_vel_(2.0), max_acc_(1.0), max_yawdot_(2.09),
       traj_dt_(0.02), vis_candidate_path_count_(3),
-      planning_height_(1.0),
+      planning_height_(1.0), local_goal_max_dist_(5.0),
+      astar_viewpoint_limit_(10),
       minco_weight_time_(30.0), minco_weight_energy_(0.1),
       minco_weight_pos_(2000.0), minco_weight_vel_(100.0),
       minco_weight_acc_(80.0), minco_weight_jerk_(30.0),

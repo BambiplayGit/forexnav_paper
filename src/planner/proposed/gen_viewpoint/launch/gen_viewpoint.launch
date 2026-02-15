@@ -32,8 +32,8 @@
     <param name="use_2d_mode" value="true" />
     <param name="fixed_height_2d" value="$(arg planning_height)" />
     <param name="use_strict_2d_mode" value="false" />
-    <!-- Output -->
-    <param name="max_viewpoints_total" value="50" />
+    <!-- Output (reduced from 50 to 20 for replanning performance) -->
+    <param name="max_viewpoints_total" value="20" />
     <param name="publish_rate" value="2.0" />
   </node>
 </launch>

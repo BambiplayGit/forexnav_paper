@@ -26,6 +26,7 @@ fov_vis_h_fov: 1.4          # rad, FOV可视化marker的水平FOV (仅影响RViz
 voxel_resolution: 0.1       # meters, 3D体素分辨率
 cam_sensing_rate: 30.0      # Hz, 深度管线更新频率
 occ3d_accumulate: true      # 是否跨帧累积3D占据
+occ3d_radius_limit: 20.0    # 3D体素空间裁剪半径(m), 超出机器人此距离的体素被删除以控制内存. <=0 禁用
 publish_free_voxels: false  # 是否发布空闲体素
 
 # ---- 深度渲染参数 (仅 enable_3d_occ=true 时使用) ----
@@ -38,6 +39,7 @@ slice_half_height: 0.2      # meters, 2D切片半高 (从 robot_z ± 此值范�
 # 原始地图话题: occupancy_grid, occupancy_3d  (用于显示)
 # 膨胀地图话题: occupancy_grid_inflate, occupancy_3d_inflate (供规划器订阅)
 inflate_radius: 0.2         # meters, 障碍物膨胀半径 (0=不膨胀)
+inflate_publish_interval: 0.15  # seconds, 膨胀地图发布间隔 (提高可减轻规划负载)
 
 # ---- FOV实时可视化 ----
 publish_fov_marker: true

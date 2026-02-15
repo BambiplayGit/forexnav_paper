@@ -76,6 +76,7 @@ class LocalSensingNode {
     double cam_sensing_rate;
     pnh.param<double>("cam_sensing_rate", cam_sensing_rate, 10.0);
     pnh.param<bool>("occ3d_accumulate", occ3d_accumulate_, true);
+    pnh.param<double>("occ3d_radius_limit", occ3d_radius_limit_, 20.0);
     pnh.param<bool>("publish_free_voxels", publish_free_voxels_, false);
 
     // ---- 深度渲染参数 (仅 enable_3d_occ=true 时使用) ----
@@ -86,6 +87,7 @@ class LocalSensingNode {
 
     // ---- 膨胀参数 (用于规划器的安全边距) ----
     pnh.param<double>("inflate_radius", inflate_radius_, 0.3);
+    pnh.param<double>("inflate_publish_interval", inflate_publish_interval_, 0.1);
 
     // ---- FOV可视化参数 ----
     pnh.param<bool>("publish_fov_marker", publish_fov_marker_, true);
@@ -407,6 +409,9 @@ class LocalSensingNode {
     if (!occ3d_accumulate_) {
       occ_3d_accum_.clear();
       occ_3d_inflate_.clear();
+    } else if (occ3d_radius_limit_ > 1e-6) {
+      // 累积模式: 裁剪超出半径的体素以控制内存 (性能优化)
+      pruneOcc3DByRadius();
     }
 
     // ---- 多pass渲染: depth_h_fov > cam_h_fov 时, 多次旋转相机覆盖全FOV ----
@@ -667,6 +672,44 @@ class LocalSensingNode {
       auto it = occ_3d_accum_.find(key);
       if (it == occ_3d_accum_.end() || it->second != 100) {
         occ_3d_accum_[key] = 0;  // 空闲
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------
+  //  裁剪超出机器人半径的3D体素 (控制内存, 避免随探索无界增长)
+  // ----------------------------------------------------------------
+  void pruneOcc3DByRadius() {
+    if (occ3d_radius_limit_ <= 1e-6) return;
+    const double r2 = occ3d_radius_limit_ * occ3d_radius_limit_;
+
+    auto it = occ_3d_accum_.begin();
+    while (it != occ_3d_accum_.end()) {
+      int gi, gj, gk;
+      key_to_ijk_3d(it->first, gi, gj, gk);
+      double vx = gl_xl_ + (gi + 0.5) * voxel_res_;
+      double vy = gl_yl_ + (gj + 0.5) * voxel_res_;
+      double dx = vx - robot_x_;
+      double dy = vy - robot_y_;
+      if (dx * dx + dy * dy > r2) {
+        it = occ_3d_accum_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    auto it2 = occ_3d_inflate_.begin();
+    while (it2 != occ_3d_inflate_.end()) {
+      int gi, gj, gk;
+      key_to_ijk_3d(*it2, gi, gj, gk);
+      double vx = gl_xl_ + (gi + 0.5) * voxel_res_;
+      double vy = gl_yl_ + (gj + 0.5) * voxel_res_;
+      double dx = vx - robot_x_;
+      double dy = vy - robot_y_;
+      if (dx * dx + dy * dy > r2) {
+        it2 = occ_3d_inflate_.erase(it2);
+      } else {
+        ++it2;
       }
     }
   }
@@ -982,6 +1025,7 @@ class LocalSensingNode {
   double fov_vis_h_fov_;      // FOV可视化marker的水平FOV
   double voxel_res_;
   bool occ3d_accumulate_;
+  double occ3d_radius_limit_ = 20.0;  // 体素空间裁剪半径(m), <=0 禁用
   bool publish_free_voxels_;
 
   // ---- 深度渲染参数 ----

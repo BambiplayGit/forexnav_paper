@@ -112,6 +112,30 @@ int ForexNavManager::planNavMotion(
   // Store A* path for visualization (before shortening)
   astar_path = temp_path;
   
+  // If selected viewpoint is farther than distance threshold, use point at that distance along A* path as local goal
+  const double local_goal_max_dist = nav_param_.local_goal_max_dist_;
+  if (dist_from_current > local_goal_max_dist) {
+    double cum = 0;
+    bool found = false;
+    for (size_t i = 1; i < temp_path.size(); ++i) {
+      double seg_len = (temp_path[i] - temp_path[i - 1]).norm();
+      if (cum + seg_len >= local_goal_max_dist) {
+        double t = (seg_len > 1e-6) ? (local_goal_max_dist - cum) / seg_len : 1.0;
+        Vector3d local_goal = temp_path[i - 1] + t * (temp_path[i] - temp_path[i - 1]);
+        temp_path.resize(i);
+        temp_path.push_back(local_goal);
+        found = true;
+        std::cout << "[ForexNav] Viewpoint " << dist_from_current << "m > " << local_goal_max_dist
+                  << "m: using local goal at " << local_goal_max_dist << "m along A* path" << std::endl;
+        break;
+      }
+      cum += seg_len;
+    }
+    if (!found) {
+      // Path shorter than threshold, keep as is
+    }
+  }
+  
   // Step 2.5: Shorten path to remove redundant waypoints
   shortenPath(temp_path);
   
@@ -212,12 +236,12 @@ int ForexNavManager::selectBestViewpoint(
   }
   
   // Goal is not in view or not reachable, select best viewpoint
-  // Compute 4 costs for each viewpoint (matching ref implementation)
-  std::vector<double> all_pred_costs;   // Cost 1: predicted path cost (A* path length as proxy for fuzzy A*)
+  // Compute quick costs (dist, curve, homo) for all viewpoints first
   std::vector<double> all_dists;        // Cost 2: distance to goal
   std::vector<double> all_curve_costs;  // Cost 3: curve dynamics cost
   std::vector<double> all_homo_costs;   // Cost 4: homotopy consistency cost
   std::vector<double> all_v_limits;     // Velocity limits from curve cost
+  std::vector<double> all_pred_costs;   // Cost 1: predicted path cost (A* or Euclidean fallback)
   std::vector<std::vector<Vector3d>> all_pred_paths;  // Cached A* paths (reused for visualization)
 
   for (size_t i = 0; i < viewpoints.size(); ++i) {
@@ -244,21 +268,46 @@ int ForexNavManager::selectBestViewpoint(
     }
     all_homo_costs.push_back(homo_cost);
 
-    // [Cost 1] Predicted path cost (use A* path length as proxy for fuzzy A*)
+    // [Cost 1] Predicted path cost: placeholder, will be filled below
+    all_pred_costs.push_back(-1.0);  // Invalid until A* runs
+    all_pred_paths.push_back(std::vector<Vector3d>());
+  }
+
+  // Sort by quick cost (dist + curve + homo) to pick top-K for A* (performance optimization)
+  const int astar_limit = nav_param_.astar_viewpoint_limit_;
+  const int n_to_astar = (astar_limit < 0 || astar_limit >= static_cast<int>(viewpoints.size()))
+      ? static_cast<int>(viewpoints.size())
+      : std::min(astar_limit, static_cast<int>(viewpoints.size()));
+
+  std::vector<size_t> quick_sort_idx(viewpoints.size());
+  for (size_t i = 0; i < viewpoints.size(); ++i) quick_sort_idx[i] = i;
+  std::sort(quick_sort_idx.begin(), quick_sort_idx.end(),
+            [&all_dists, &all_curve_costs, &all_homo_costs](size_t a, size_t b) {
+              double ca = all_dists[a] + all_curve_costs[a] + all_homo_costs[a];
+              double cb = all_dists[b] + all_curve_costs[b] + all_homo_costs[b];
+              return ca < cb;
+            });
+
+  // Run A* only for top-K viewpoints; use Euclidean fallback for the rest
+  for (int k = 0; k < n_to_astar; ++k) {
+    size_t i = quick_sort_idx[k];
     std::vector<Vector3d> pred_path;
-    double pred_cost = std::numeric_limits<double>::max();
     bool found = planPath(viewpoints[i].pos_, goal_pos, pred_path);
     if (found && pred_path.size() >= 2) {
-      pred_cost = 0.0;
+      double pred_cost = 0.0;
       for (size_t j = 1; j < pred_path.size(); ++j) {
         pred_cost += (pred_path[j] - pred_path[j - 1]).norm();
       }
-      all_pred_costs.push_back(pred_cost);
+      all_pred_costs[i] = pred_cost;
     } else {
-      all_pred_costs.push_back(-1.0);  // Mark as invalid
+      // Fallback: Euclidean distance from viewpoint to goal
+      all_pred_costs[i] = (viewpoints[i].pos_ - goal_pos).norm();
     }
-    // Cache the path for visualization reuse (avoids redundant A* searches later)
-    all_pred_paths.push_back(std::move(pred_path));
+    all_pred_paths[i] = std::move(pred_path);
+  }
+  for (int k = n_to_astar; k < static_cast<int>(viewpoints.size()); ++k) {
+    size_t i = quick_sort_idx[k];
+    all_pred_costs[i] = (viewpoints[i].pos_ - goal_pos).norm();  // Euclidean fallback
   }
 
   // Compute min/max for normalization

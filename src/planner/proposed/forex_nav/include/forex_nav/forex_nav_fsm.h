@@ -75,6 +75,7 @@ private:
   size_t traj_index_;
   ros::Time traj_start_time_;
   ros::Time last_replan_time_;
+  ros::Time last_map_update_time_;  // Throttle map updates for planning performance
   
   // Continuous MINCO trajectory for real-time p/v/a evaluation
   Trajectory<5> minco_traj_obj_;
