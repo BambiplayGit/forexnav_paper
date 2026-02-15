@@ -45,26 +45,28 @@
     <param name="fsm/replan_time" value="0.3" />
     <param name="fsm/goal_reached_threshold" value="0.5" />
     <param name="fsm/no_replan_dist_to_goal" value="1.5" />
-    <param name="nav/w_dist" value="2.0" />
-    <param name="nav/w_pred" value="1.5" />
+    <param name="fsm/viewpoint_reached_threshold" value="1.0" />
+    <param name="nav/w_dist" value="0.3" />
+    <param name="nav/w_pred" value="3.0" />
     <param name="nav/w_curve" value="0.3" />
-    <param name="nav/w_homo" value="0.3" />
+    <param name="nav/w_homo" value="0.1" />
     <param name="nav/max_vel" value="$(arg max_vel)" />
     <param name="nav/max_acc" value="$(arg max_acc)" />
     <param name="nav/max_yawdot" value="2.09" />
     <param name="nav/traj_dt" value="0.02" />
     <param name="nav/vis_candidate_path_count" value="3"/>
     <param name="nav/planning_height" value="$(arg planning_height)" />
+    <param name="nav/local_goal_max_dist" value="5.0" />
     
     <!-- MINCO trajectory optimization -->
-    <param name="minco/weight_time" value="30.0" />
-    <param name="minco/weight_energy" value="0.1" />
+    <param name="minco/weight_time" value="60.0" />
+    <param name="minco/weight_energy" value="0.5" />
     <param name="minco/weight_pos" value="2000.0" />
     <param name="minco/weight_vel" value="100.0" />
     <param name="minco/weight_acc" value="80.0" />
     <param name="minco/weight_jerk" value="30.0" />
     <param name="minco/max_jerk" value="15.0" />
-    <param name="minco/alloc_speed_ratio" value="0.7" />
+    <param name="minco/alloc_speed_ratio" value="1.0" />
     <param name="minco/length_per_piece" value="2.0" />
   </node>
 

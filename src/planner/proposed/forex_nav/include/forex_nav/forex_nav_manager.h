@@ -9,6 +9,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include "forex_nav/forex_nav_data.h"
+#include "forex_nav/fuzzy_astar_2d.h"
 #include "forex_nav/minco/trajectory.hpp"
 
 namespace forex_nav {
@@ -59,6 +60,12 @@ public:
   // Set map for A* planning
   void setMap(const nav_msgs::OccupancyGrid::ConstPtr& map);
 
+  // Set whether inpainted map is available for predicted cost (fuzzy A*); when false, pred cost = 0
+  void setUseInpaintForPred(bool use) { use_inpaint_for_pred_ = use; }
+
+  // Set inpainted map for FuzzyAstar2D predicted cost computation
+  void setInpaintedMap(const nav_msgs::OccupancyGrid::ConstPtr& map);
+
   // 设置3D占据点云
   void setOccCloud3D(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, double voxel_res);
 
@@ -98,6 +105,12 @@ private:
   std::shared_ptr<Astar2D> astar_2d_;
   std::shared_ptr<MincoWrapper> minco_wrapper_;
   std::vector<std::vector<Vector3d>> candidate_paths_;  // Paths to candidate viewpoints for vis
+  
+  bool use_inpaint_for_pred_;  // When false, skip A* for pred cost and set to 0 (no inpainted map)
+  
+  // FuzzyAstar2D for predicted cost on inpainted map
+  FuzzyAstar2D fuzzy_astar_;
+  nav_msgs::OccupancyGrid::ConstPtr inpaint_map_;
   
   // Homotopy consistency state
   bool has_last_goal_;

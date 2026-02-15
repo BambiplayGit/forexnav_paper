@@ -41,6 +41,7 @@ private:
   void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
   void viewpointsCallback(const geometry_msgs::PoseArray::ConstPtr& msg);
   void mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg);
+  void inpaintMapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg);
   void occCloud3DCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
   
   // FSM callbacks
@@ -95,7 +96,11 @@ private:
   ros::Subscriber goal_sub_;
   ros::Subscriber viewpoints_sub_;
   ros::Subscriber map_sub_;
+  ros::Subscriber inpaint_map_sub_;
   ros::Subscriber occ_cloud_3d_sub_;
+  
+  bool has_inpaint_map_;  // True when at least one inpainted map has been received
+  nav_msgs::OccupancyGrid::ConstPtr inpaint_map_;  // 存储最新的 inpainted map
   
   ros::Publisher traj_pub_;
   ros::Publisher vis_pub_;

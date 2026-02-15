@@ -11,7 +11,8 @@
 
 namespace forex_nav {
 
-ForexNavManager::ForexNavManager() : has_last_goal_(false), last_best_goal_(Vector3d::Zero()) {
+ForexNavManager::ForexNavManager() : has_last_goal_(false), last_best_goal_(Vector3d::Zero()),
+    use_inpaint_for_pred_(false) {
   nav_param_ = NavParam();
   astar_2d_ = std::make_shared<Astar2D>();
   astar_2d_->setResolution(0.1);
@@ -47,6 +48,13 @@ void ForexNavManager::setMap(const nav_msgs::OccupancyGrid::ConstPtr& map) {
   }
   if (minco_wrapper_) {
     minco_wrapper_->setMap(map);
+  }
+}
+
+void ForexNavManager::setInpaintedMap(const nav_msgs::OccupancyGrid::ConstPtr& map) {
+  inpaint_map_ = map;
+  if (inpaint_map_) {
+    fuzzy_astar_.setMap(inpaint_map_.get());
   }
 }
 
@@ -263,7 +271,7 @@ int ForexNavManager::selectBestViewpoint(
       double dot = dir_old.dot(dir_new);
       homo_cost = (1.0 - dot) * 0.5;
       if (dot < 0.0) {
-        homo_cost *= 10.0;  // Heavy penalty for going backward
+        homo_cost *= 3.0;  // Moderate penalty for going backward (reduced from 10.0)
       }
     }
     all_homo_costs.push_back(homo_cost);
@@ -288,26 +296,35 @@ int ForexNavManager::selectBestViewpoint(
               return ca < cb;
             });
 
-  // Run A* only for top-K viewpoints; use Euclidean fallback for the rest
-  for (int k = 0; k < n_to_astar; ++k) {
-    size_t i = quick_sort_idx[k];
-    std::vector<Vector3d> pred_path;
-    bool found = planPath(viewpoints[i].pos_, goal_pos, pred_path);
-    if (found && pred_path.size() >= 2) {
-      double pred_cost = 0.0;
-      for (size_t j = 1; j < pred_path.size(); ++j) {
-        pred_cost += (pred_path[j] - pred_path[j - 1]).norm();
+  if (use_inpaint_for_pred_ && inpaint_map_) {
+    // Run FuzzyAstar2D on inpainted map for top-K viewpoints
+    // FuzzyAstar always finds a path (obstacles are traversable with high cost)
+    for (int k = 0; k < n_to_astar; ++k) {
+      size_t i = quick_sort_idx[k];
+      std::vector<Eigen::Vector2i> pred_path_pix;
+      std::vector<Vector3d> pred_path;
+      double fuzzy_cost = 0.0;
+      bool found = fuzzy_astar_.search(viewpoints[i].pos_, goal_pos,
+                                        pred_path_pix, pred_path, fuzzy_cost);
+      if (found) {
+        all_pred_costs[i] = fuzzy_cost;  // fuzzy cost: free=1, uncertain=2, obstacle=8
+      } else {
+        // Edge case (out of map bounds etc.): mark as invalid → gets PENALTY_FACTOR in normalization
+        all_pred_costs[i] = -1.0;
       }
-      all_pred_costs[i] = pred_cost;
-    } else {
-      // Fallback: Euclidean distance from viewpoint to goal
-      all_pred_costs[i] = (viewpoints[i].pos_ - goal_pos).norm();
+      all_pred_paths[i] = std::move(pred_path);
     }
-    all_pred_paths[i] = std::move(pred_path);
-  }
-  for (int k = n_to_astar; k < static_cast<int>(viewpoints.size()); ++k) {
-    size_t i = quick_sort_idx[k];
-    all_pred_costs[i] = (viewpoints[i].pos_ - goal_pos).norm();  // Euclidean fallback
+    // Remaining viewpoints (not in top-K): mark as invalid → penalized in normalization
+    for (int k = n_to_astar; k < static_cast<int>(viewpoints.size()); ++k) {
+      size_t i = quick_sort_idx[k];
+      all_pred_costs[i] = -1.0;
+    }
+  } else {
+    // No inpainted map: skip fuzzy A*, set predicted cost to 0 for all viewpoints
+    for (size_t i = 0; i < viewpoints.size(); ++i) {
+      all_pred_costs[i] = 0.0;
+      // all_pred_paths remain empty (no visualization for fuzzy A*)
+    }
   }
 
   // Compute min/max for normalization

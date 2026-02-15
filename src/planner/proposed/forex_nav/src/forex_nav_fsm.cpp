@@ -8,7 +8,8 @@ namespace forex_nav {
 
 ForexNavFSM::ForexNavFSM(ros::NodeHandle& nh, ros::NodeHandle& pnh) 
   : nh_(nh), pnh_(pnh), state_(INIT), traj_index_(0),
-    minco_traj_duration_(0.0), minco_start_yaw_(0.0), minco_end_yaw_(0.0), has_minco_traj_(false) {
+    minco_traj_duration_(0.0), minco_start_yaw_(0.0), minco_end_yaw_(0.0), has_minco_traj_(false),
+    has_inpaint_map_(false) {
   
   fd_ = std::make_shared<FSMData>();
   fp_ = std::make_shared<FSMParam>();
@@ -68,6 +69,11 @@ void ForexNavFSM::init() {
   
   // Subscribe to inflated occupancy grid for A* planning (安全膨胀版)
   map_sub_ = nh_.subscribe("/local_sensing/occupancy_grid_inflate", 10, &ForexNavFSM::mapCallback, this);
+  
+  // Optional: subscribe to inpainted map for predicted cost (fuzzy A*); when no inpaint, pred cost is set to 0
+  std::string inpaint_map_topic;
+  pnh_.param<std::string>("inpaint_map_topic", inpaint_map_topic, "/inpainted/map");
+  inpaint_map_sub_ = nh_.subscribe(inpaint_map_topic, 1, &ForexNavFSM::inpaintMapCallback, this);
   
   // Subscribe to inflated 3D occupancy point cloud for 3D corridor generation (安全膨胀版)
   occ_cloud_3d_sub_ = nh_.subscribe("/local_sensing/occupancy_3d_inflate", 1, &ForexNavFSM::occCloud3DCallback, this);
@@ -159,6 +165,11 @@ void ForexNavFSM::mapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) {
   }
   last_map_update_time_ = now;
   manager_->setMap(msg);
+}
+
+void ForexNavFSM::inpaintMapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg) {
+  inpaint_map_ = msg;
+  has_inpaint_map_ = true;
 }
 
 void ForexNavFSM::occCloud3DCallback(const sensor_msgs::PointCloud2::ConstPtr& msg) {
@@ -392,6 +403,10 @@ int ForexNavFSM::callPlanner() {
   }
   
   Trajectory<5> minco_traj;
+  manager_->setUseInpaintForPred(has_inpaint_map_);
+  if (has_inpaint_map_ && inpaint_map_) {
+    manager_->setInpaintedMap(inpaint_map_);
+  }
   int res = manager_->planNavMotion(
     fd_->odom_pos_, start_vel, fd_->odom_yaw_,
     fd_->goal_pos_,
