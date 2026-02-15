@@ -25,6 +25,7 @@
   <arg name="trans_x" default="0.0" />
   <arg name="trans_y" default="0.0" />
   <arg name="pcd_file" default="office.pcd" />
+  <arg name="trans_z" default="-0.3" />
   
   <!-- Occupancy map size (meters) - adjust to match your environment -->
   <!-- For CogniPlan: smaller maps work better (GAN input is 256x256 pixels) -->
@@ -38,7 +39,7 @@
     <param name="rotate_z" value="$(arg rotate_z)" />
     <param name="trans_x" value="$(arg trans_x)" />
     <param name="trans_y" value="$(arg trans_y)" />
-    <param name="trans_z" value="-0.3" />
+    <param name="trans_z" value="$(arg trans_z)" />
     <param name="frame_id" value="world" />
   </node>
 

@@ -14,7 +14,7 @@ occupancy_resolution: 0.1
 publish_cloud: true
 
 # ---- 3D深度感知开关 ----
-enable_3d_occ: true
+enable_3d_occ: false
 
 # ---- 深度相机锥形感知参数 ----
 cam_h_fov: 1.4             # rad, ~80 deg 单次渲染水平FOV (针孔相机内参)

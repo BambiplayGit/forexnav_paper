@@ -4,7 +4,7 @@ max_vel: &max_vel 2.0                          # m/s   robot max vel
 max_acc: &max_acc 2.0                        # m/s^2 robot max acc
 max_jerk: &max_jerk 10.0                             # m/s^3 robot max jerk
 
-obstacles_inflation: &obstacles_inflation 0.10       # m
+obstacles_inflation: &obstacles_inflation 0.20       # m
 
 # ----------------------------------------------------------------------------------
 # 1. FSM parameters (fsm/)

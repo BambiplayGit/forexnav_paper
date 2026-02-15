@@ -5,12 +5,33 @@
   <arg name="map_x_size" default="15" />
   <arg name="map_y_size" default="30" />
   <arg name="planning_height" default="0.45" />
+  <arg name="robot_type" default="zsl-1" />
+  <arg name="rviz" default="true" />
+  <!-- Map loading params -->
+  <arg name="init_x" default="-6.0" />
+  <arg name="init_y" default="10.0" />
+  <arg name="init_yaw" default="-1.57" />
+  <arg name="pcd_file" default="office.pcd" />
+  <arg name="rotate_z" default="0.0" />
+  <arg name="trans_x" default="0.0" />
+  <arg name="trans_y" default="0.0" />
+  <arg name="trans_z" default="-0.3" />
 
   <include file="$(find nav_exp_env)/base_env/launch/nav_env_legged.launch">
     <arg name="use_click_pos_cmd" value="false" />
     <arg name="map_x_size" value="$(arg map_x_size)" />
     <arg name="map_y_size" value="$(arg map_y_size)" />
     <arg name="planning_height" value="$(arg planning_height)" />
+    <arg name="robot_type" value="$(arg robot_type)" />
+    <arg name="rviz" value="false" />
+    <arg name="init_x" value="$(arg init_x)" />
+    <arg name="init_y" value="$(arg init_y)" />
+    <arg name="init_yaw" value="$(arg init_yaw)" />
+    <arg name="pcd_file" value="$(arg pcd_file)" />
+    <arg name="rotate_z" value="$(arg rotate_z)" />
+    <arg name="trans_x" value="$(arg trans_x)" />
+    <arg name="trans_y" value="$(arg trans_y)" />
+    <arg name="trans_z" value="$(arg trans_z)" />
   </include>
 
   <include file="$(find gen_viewpoint)/launch/gen_viewpoint.launch">
@@ -46,4 +67,8 @@
     <param name="minco/alloc_speed_ratio" value="0.7" />
     <param name="minco/length_per_piece" value="2.0" />
   </node>
+
+  <!-- RViz -->
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
+        args="-d $(find nav_exp_env)/proposed/config/forex.rviz -f odom" />
 </launch>

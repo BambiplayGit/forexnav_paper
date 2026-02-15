@@ -6,6 +6,15 @@
   <arg name="map_y_size" default="132" />
   <arg name="planning_height" default="0.4" doc="Robot init z / planning height (meters)" />
   <arg name="robot_type" default="zsl-1" doc="Robot type: zsl-1 (智身) or go2 (宇树)" />
+  <!-- Map loading params -->
+  <arg name="init_x" default="-6.0" />
+  <arg name="init_y" default="10.0" />
+  <arg name="init_yaw" default="-1.57" />
+  <arg name="pcd_file" default="office.pcd" />
+  <arg name="rotate_z" default="0.0" />
+  <arg name="trans_x" default="0.0" />
+  <arg name="trans_y" default="0.0" />
+  <arg name="trans_z" default="-0.3" />
 
   <!-- ============== Base Environment (四足版) ============== -->
   <!-- Provides: map_loader, odom simulator (with gait dynamics), local_sensing, odom path publisher -->
@@ -16,6 +25,14 @@
     <arg name="map_y_size" value="$(arg map_y_size)" />
     <arg name="planning_height" value="$(arg planning_height)" />
     <arg name="robot_type" value="$(arg robot_type)" />
+    <arg name="init_x" value="$(arg init_x)" />
+    <arg name="init_y" value="$(arg init_y)" />
+    <arg name="init_yaw" value="$(arg init_yaw)" />
+    <arg name="pcd_file" value="$(arg pcd_file)" />
+    <arg name="rotate_z" value="$(arg rotate_z)" />
+    <arg name="trans_x" value="$(arg trans_x)" />
+    <arg name="trans_y" value="$(arg trans_y)" />
+    <arg name="trans_z" value="$(arg trans_z)" />
   </include>
 
   <!-- ============== Extra TFs for FRTree ============== -->
