@@ -120,11 +120,12 @@ int ForexNavManager::planNavMotion(
   // Store A* path for visualization (before shortening)
   astar_path = temp_path;
   
-  // If selected viewpoint is farther than distance threshold, use point at that distance along A* path as local goal
+  // Always trim A* path to keep only the first local_goal_max_dist (e.g. 5m) measured along the path.
+  // This avoids wall-penetration caused by sending a long winding path to MINCO optimization.
+  // NOTE: We use cumulative path length (not Euclidean distance) to decide trimming.
   const double local_goal_max_dist = nav_param_.local_goal_max_dist_;
-  if (dist_from_current > local_goal_max_dist) {
+  {
     double cum = 0;
-    bool found = false;
     for (size_t i = 1; i < temp_path.size(); ++i) {
       double seg_len = (temp_path[i] - temp_path[i - 1]).norm();
       if (cum + seg_len >= local_goal_max_dist) {
@@ -132,16 +133,14 @@ int ForexNavManager::planNavMotion(
         Vector3d local_goal = temp_path[i - 1] + t * (temp_path[i] - temp_path[i - 1]);
         temp_path.resize(i);
         temp_path.push_back(local_goal);
-        found = true;
-        std::cout << "[ForexNav] Viewpoint " << dist_from_current << "m > " << local_goal_max_dist
-                  << "m: using local goal at " << local_goal_max_dist << "m along A* path" << std::endl;
+        std::cout << "[ForexNav] Trimmed A* path at " << local_goal_max_dist
+                  << "m along path (path_len=" << (cum + seg_len * t)
+                  << "m, euclidean=" << dist_from_current << "m)" << std::endl;
         break;
       }
       cum += seg_len;
     }
-    if (!found) {
-      // Path shorter than threshold, keep as is
-    }
+    // If total path length < local_goal_max_dist, keep as is (no trimming needed)
   }
   
   // Step 2.5: Shorten path to remove redundant waypoints
@@ -429,21 +428,18 @@ int ForexNavManager::selectBestViewpoint(
 bool ForexNavManager::planPath(
     const Vector3d& start, const Vector3d& end, std::vector<Vector3d>& path) {
   if (!astar_2d_) {
-    // Fallback to straight line if A* not available
-    path.clear();
-    path.push_back(start);
-    path.push_back(end);
-    return true;
+    std::cerr << "[ForexNav] planPath: A* planner not available, cannot plan" << std::endl;
+    return false;
   }
   
   bool success = astar_2d_->search(start, end, path);
   
   if (!success || path.empty()) {
-    // Fallback to straight line if A* fails
-    path.clear();
-    path.push_back(start);
-    path.push_back(end);
-    return true;
+    // A* failed — do NOT fall back to straight line (would penetrate walls)
+    std::cerr << "[ForexNav] planPath: A* search failed from ("
+              << start.x() << "," << start.y() << ") to ("
+              << end.x() << "," << end.y() << ")" << std::endl;
+    return false;
   }
   
   return true;
