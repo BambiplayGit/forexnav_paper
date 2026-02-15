@@ -65,6 +65,6 @@
 
   <!-- ============== RViz (四足可视化) ============== -->
   <node pkg="rviz" type="rviz" name="rviz_cogniplan" output="screen"
-        args="-d $(find nav_exp_env)/cogniplan/config/cogniplan.rviz -f odom"
+        args="-d $(find nav_exp_env)/proposed/config/forex.rviz -f odom"
         if="$(arg rviz)" />
 </launch>

@@ -68,6 +68,8 @@ class LocalSensingNode {
     pnh.param<double>("cam_v_fov", cam_v_fov_, 1.01);
     pnh.param<double>("cam_pitch", cam_pitch_, 0.0);
     pnh.param<double>("cam_max_range", cam_max_range_, 10.0);
+    pnh.param<double>("depth_h_fov", depth_h_fov_, cam_h_fov_);
+    pnh.param<double>("fov_vis_h_fov", fov_vis_h_fov_, cam_h_fov_);
     pnh.param<double>("voxel_resolution", voxel_res_, 0.1);
     double z_size;
     pnh.param<double>("map/z_size", z_size, 5.0);
@@ -133,10 +135,13 @@ class LocalSensingNode {
       double timer_period = 1.0 / cam_sensing_rate;
       timer_depth_ = nh.createTimer(ros::Duration(timer_period),
                                      &LocalSensingNode::depthSensingCallback, this);
+      int depth_n_passes = std::max(1, (int)std::ceil(depth_h_fov_ / cam_h_fov_));
       ROS_INFO("[LocalSensing] Depth pipeline: %dx%d fx=%.1f fy=%.1f "
-               "max_range=%.1f voxel=%.2f rate=%.1fHz",
+               "max_range=%.1f voxel=%.2f rate=%.1fHz "
+               "depth_h_fov=%.2f(%d passes) vis_fov=%.2f",
                cam_width_, cam_height_, cam_fx_, cam_fy_,
-               cam_max_range_, voxel_res_, cam_sensing_rate);
+               cam_max_range_, voxel_res_, cam_sensing_rate,
+               depth_h_fov_, depth_n_passes, fov_vis_h_fov_);
       ROS_INFO("[LocalSensing] pitch=%.2f rad slice_half=%.2f point_r=%.4f",
                cam_pitch_, slice_half_height_, depth_point_radius_);
       if (inflate_radius_ > 1e-6)
@@ -390,29 +395,55 @@ class LocalSensingNode {
     if (!has_map_ || !has_odom_) return;
     if (last_odom_stamp_.toSec() == 0.0) return;
 
-    // ---- 1. 计算相机外参 ----
-    Eigen::Matrix4d body_pose = Eigen::Matrix4d::Identity();
-    body_pose.block<3, 3>(0, 0) = robot_quat_.toRotationMatrix();
-    body_pose(0, 3) = robot_x_;
-    body_pose(1, 3) = robot_y_;
-    body_pose(2, 3) = robot_z_;
+    // 非累积模式每帧清空 (在多pass循环前统一清空)
+    if (!occ3d_accumulate_) {
+      occ_3d_accum_.clear();
+      occ_3d_inflate_.clear();
+    }
 
-    // cam2world: 相机坐标 → 世界坐标
-    Eigen::Matrix4d cam2world = body_pose * cam02body_;
-    // Tcw: 世界坐标 → 相机坐标
-    Eigen::Matrix4d Tcw = cam2world.inverse();
-    Eigen::Matrix3d Rcw = Tcw.block<3, 3>(0, 0);
-    Eigen::Vector3d tcw = Tcw.block<3, 1>(0, 3);
-    Eigen::Vector3d cam_pos = cam2world.block<3, 1>(0, 3);
-    Eigen::Matrix3d Rwc = cam2world.block<3, 3>(0, 0);
+    // ---- 多pass渲染: depth_h_fov > cam_h_fov 时, 多次旋转相机覆盖全FOV ----
+    int n_passes = std::max(1, (int)std::ceil(depth_h_fov_ / cam_h_fov_));
+    double pass_step = depth_h_fov_ / n_passes;
+    double start_offset = -(depth_h_fov_ - pass_step) / 2.0;
 
-    // ---- 2. 渲染深度图 ----
-    std::vector<float> depth_buf(cam_width_ * cam_height_, 0.0f);
-    renderDepthBuffer(Rcw, tcw, cam_pos, depth_buf);
+    Eigen::Matrix3d R_body = robot_quat_.toRotationMatrix();
+    pcl::PointCloud<pcl::PointXYZ> all_hit_cloud;
 
-    // ---- 3. 从深度图构建三维体素地图 ----
-    pcl::PointCloud<pcl::PointXYZ> hit_cloud;
-    buildVoxelsFromDepth(depth_buf, cam_pos, Rwc, hit_cloud);
+    for (int pass = 0; pass < n_passes; pass++) {
+      double delta_yaw = start_offset + pass * pass_step;
+
+      // ---- 1. 计算相机外参 (含yaw偏移) ----
+      Eigen::Matrix4d body_pose = Eigen::Matrix4d::Identity();
+      if (n_passes > 1) {
+        Eigen::Matrix3d R_yaw = Eigen::AngleAxisd(delta_yaw,
+                                    Eigen::Vector3d::UnitZ()).toRotationMatrix();
+        body_pose.block<3, 3>(0, 0) = R_yaw * R_body;
+      } else {
+        body_pose.block<3, 3>(0, 0) = R_body;
+      }
+      body_pose(0, 3) = robot_x_;
+      body_pose(1, 3) = robot_y_;
+      body_pose(2, 3) = robot_z_;
+
+      // cam2world: 相机坐标 → 世界坐标
+      Eigen::Matrix4d cam2world = body_pose * cam02body_;
+      // Tcw: 世界坐标 → 相机坐标
+      Eigen::Matrix4d Tcw = cam2world.inverse();
+      Eigen::Matrix3d Rcw = Tcw.block<3, 3>(0, 0);
+      Eigen::Vector3d tcw = Tcw.block<3, 1>(0, 3);
+      Eigen::Vector3d cam_pos = cam2world.block<3, 1>(0, 3);
+      Eigen::Matrix3d Rwc = cam2world.block<3, 3>(0, 0);
+
+      // ---- 2. 渲染深度图 ----
+      std::vector<float> depth_buf(cam_width_ * cam_height_, 0.0f);
+      renderDepthBuffer(Rcw, tcw, cam_pos, depth_buf);
+
+      // ---- 3. 从深度图构建三维体素地图 ----
+      pcl::PointCloud<pcl::PointXYZ> hit_cloud;
+      buildVoxelsFromDepth(depth_buf, cam_pos, Rwc, hit_cloud);
+
+      all_hit_cloud += hit_cloud;
+    }
 
     // ---- 4. 发布三维体素地图 (始终发布) ----
     publish3DOccupancy();
@@ -431,12 +462,12 @@ class LocalSensingNode {
         inflateAndPublish2DGrid(last_slice_grid_);
       }
 
-      if (publish_cloud_ && !hit_cloud.points.empty()) {
-        hit_cloud.width = hit_cloud.points.size();
-        hit_cloud.height = 1;
-        hit_cloud.is_dense = true;
+      if (publish_cloud_ && !all_hit_cloud.points.empty()) {
+        all_hit_cloud.width = all_hit_cloud.points.size();
+        all_hit_cloud.height = 1;
+        all_hit_cloud.is_dense = true;
         sensor_msgs::PointCloud2 cloud_msg;
-        pcl::toROSMsg(hit_cloud, cloud_msg);
+        pcl::toROSMsg(all_hit_cloud, cloud_msg);
         cloud_msg.header.stamp = last_odom_stamp_;
         cloud_msg.header.frame_id = cloud_frame_id_;
         cloud_pub_.publish(cloud_msg);
@@ -500,11 +531,7 @@ class LocalSensingNode {
                              const Eigen::Vector3d& cam_pos,
                              const Eigen::Matrix3d& Rwc,
                              pcl::PointCloud<pcl::PointXYZ>& hit_cloud) {
-    // 非累积模式每帧清空
-    if (!occ3d_accumulate_) {
-      occ_3d_accum_.clear();
-      occ_3d_inflate_.clear();
-    }
+    // 注: 非累积模式的清空已移至 depthSensingCallback (支持多pass渲染)
 
     // 像素采样步长 (不需要逐像素处理, 平衡精度与效率)
     int step = std::max(1, std::min(cam_width_, cam_height_) / 120);
@@ -857,7 +884,7 @@ class LocalSensingNode {
 
     double h_fov, v_fov, pitch, range;
     if (enable_3d_occ_) {
-      h_fov = cam_h_fov_;
+      h_fov = fov_vis_h_fov_;   // 仅可视化FOV, 不影响实际深度感知范围
       v_fov = cam_v_fov_;
       pitch = cam_pitch_;
       range = cam_max_range_ * fov_marker_scale_;
@@ -939,6 +966,8 @@ class LocalSensingNode {
   double cam_v_fov_;
   double cam_pitch_;
   double cam_max_range_;
+  double depth_h_fov_;        // 实际深度感知水平FOV (可360度, 多pass渲染)
+  double fov_vis_h_fov_;      // FOV可视化marker的水平FOV
   double voxel_res_;
   bool occ3d_accumulate_;
   bool publish_free_voxels_;

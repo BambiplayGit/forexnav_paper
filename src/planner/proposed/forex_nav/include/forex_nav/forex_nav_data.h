@@ -83,11 +83,27 @@ struct NavParam {
   // Height
   double planning_height_;  // 规划高度 (m)
   
+  // MINCO trajectory optimization parameters
+  double minco_weight_time_;         // 时间代价权重 (越大越压缩时间, 轨迹越激进)
+  double minco_weight_energy_;       // 能量/平滑权重 (越大越光滑)
+  double minco_weight_pos_;          // 位置约束(走廊)惩罚
+  double minco_weight_vel_;          // 速度约束惩罚
+  double minco_weight_acc_;          // 加速度约束惩罚
+  double minco_weight_jerk_;         // jerk约束惩罚
+  double minco_max_jerk_;            // 最大jerk约束 (m/s^3)
+  double minco_alloc_speed_ratio_;   // 初始时间分配速度 = max_vel * ratio
+  double minco_length_per_piece_;    // 每段多项式目标长度 (m)
+  
   NavParam()
     : w_dist_(2.0), w_pred_(1.5), w_curve_(0.3), w_homo_(0.3),
       max_vel_(2.0), max_acc_(1.0), max_yawdot_(2.09),
       traj_dt_(0.02), vis_candidate_path_count_(3),
-      planning_height_(1.0) {}
+      planning_height_(1.0),
+      minco_weight_time_(30.0), minco_weight_energy_(0.1),
+      minco_weight_pos_(2000.0), minco_weight_vel_(100.0),
+      minco_weight_acc_(80.0), minco_weight_jerk_(30.0),
+      minco_max_jerk_(15.0), minco_alloc_speed_ratio_(0.7),
+      minco_length_per_piece_(2.0) {}
 };
 
 }  // namespace forex_nav

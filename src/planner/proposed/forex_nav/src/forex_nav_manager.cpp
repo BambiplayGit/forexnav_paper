@@ -27,6 +27,18 @@ void ForexNavManager::initialize() {
   astar_2d_->setFixedHeight(h);
   minco_wrapper_->setFixedHeight(h);
   std::cout << "[ForexNav] Planning height set to " << h << " m" << std::endl;
+  
+  // 转发 MINCO 优化参数到 wrapper
+  minco_wrapper_->setMincoOptConfig(
+      nav_param_.minco_weight_time_,
+      nav_param_.minco_weight_energy_,
+      nav_param_.minco_weight_pos_,
+      nav_param_.minco_weight_vel_,
+      nav_param_.minco_weight_acc_,
+      nav_param_.minco_weight_jerk_,
+      nav_param_.minco_max_jerk_,
+      nav_param_.minco_alloc_speed_ratio_,
+      nav_param_.minco_length_per_piece_);
 }
 
 void ForexNavManager::setMap(const nav_msgs::OccupancyGrid::ConstPtr& map) {

@@ -14,13 +14,15 @@ occupancy_resolution: 0.1
 publish_cloud: true
 
 # ---- 3D深度感知开关 ----
-enable_3d_occ: false
+enable_3d_occ: true
 
 # ---- 深度相机锥形感知参数 ----
-cam_h_fov: 1.4             # rad, ~80 deg 水平FOV
+cam_h_fov: 1.4             # rad, ~80 deg 单次渲染水平FOV (针孔相机内参)
 cam_v_fov: 1.01             # rad, ~58 deg 垂直FOV
 cam_pitch: 0.0              # rad, 相机俯仰角 (0=水平, 正值=仰视, 负值=俯视)
 cam_max_range: 10.0         # meters, 最大感知距离
+depth_h_fov: 6.28           # rad, 实际深度感知水平FOV (支持360度环绕, 自动多pass渲染)
+fov_vis_h_fov: 1.4          # rad, FOV可视化marker的水平FOV (仅影响RViz显示, 不影响感知)
 voxel_resolution: 0.1       # meters, 3D体素分辨率
 cam_sensing_rate: 30.0      # Hz, 深度管线更新频率
 occ3d_accumulate: true      # 是否跨帧累积3D占据
@@ -29,7 +31,7 @@ publish_free_voxels: false  # 是否发布空闲体素
 # ---- 深度渲染参数 (仅 enable_3d_occ=true 时使用) ----
 cam_width: 320              # 虚拟深度图水平分辨率 (像素)
 cam_height: 240             # 虚拟深度图垂直分辨率 (像素)
-depth_point_radius: 0.0873  # 投影点膨胀系数 (模拟真实传感器, 越大点越大)
+depth_point_radius: 0.12  # 投影点膨胀系数 (模拟真实传感器, 越大点越大)
 slice_half_height: 0.2      # meters, 2D切片半高 (从 robot_z ± 此值范围内切片)
 
 # ---- 膨胀参数 (供规划器使用的安全边距) ----

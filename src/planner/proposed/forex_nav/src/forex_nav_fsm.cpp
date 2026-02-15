@@ -44,6 +44,17 @@ void ForexNavFSM::init() {
   pnh_.param("nav/vis_candidate_path_count", nav_param.vis_candidate_path_count_, nav_param.vis_candidate_path_count_);
   pnh_.param("nav/planning_height", nav_param.planning_height_, nav_param.planning_height_);
   
+  // MINCO trajectory optimization parameters
+  pnh_.param("minco/weight_time", nav_param.minco_weight_time_, nav_param.minco_weight_time_);
+  pnh_.param("minco/weight_energy", nav_param.minco_weight_energy_, nav_param.minco_weight_energy_);
+  pnh_.param("minco/weight_pos", nav_param.minco_weight_pos_, nav_param.minco_weight_pos_);
+  pnh_.param("minco/weight_vel", nav_param.minco_weight_vel_, nav_param.minco_weight_vel_);
+  pnh_.param("minco/weight_acc", nav_param.minco_weight_acc_, nav_param.minco_weight_acc_);
+  pnh_.param("minco/weight_jerk", nav_param.minco_weight_jerk_, nav_param.minco_weight_jerk_);
+  pnh_.param("minco/max_jerk", nav_param.minco_max_jerk_, nav_param.minco_max_jerk_);
+  pnh_.param("minco/alloc_speed_ratio", nav_param.minco_alloc_speed_ratio_, nav_param.minco_alloc_speed_ratio_);
+  pnh_.param("minco/length_per_piece", nav_param.minco_length_per_piece_, nav_param.minco_length_per_piece_);
+  
   manager_->initialize();
   
   // Setup ROS interfaces

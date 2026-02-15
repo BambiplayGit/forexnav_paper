@@ -46,5 +46,5 @@
 
   <!-- ============== RViz (四足可视化) ============== -->
   <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
-        args="-d $(find nav_exp_env)/rrtx/config/rrtx.rviz -f odom" />
+        args="-d $(find nav_exp_env)/proposed/config/forex.rviz -f odom" />
 </launch>

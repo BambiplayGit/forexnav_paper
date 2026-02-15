@@ -72,7 +72,7 @@
           pkg="rviz" 
           type="rviz" 
           output="screen" 
-          args="-d $(find legged_config)/config/leg_visualization.rviz -f $(arg rviz_ref_frame)" />
+          args="-d $(find nav_exp_env)/proposed/config/forex.rviz -f $(arg rviz_ref_frame)" />
     
 </launch>
 

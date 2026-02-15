@@ -153,5 +153,5 @@
       pkg="rviz" 
       type="rviz" 
       output="screen" 
-      args="-d $(find legged_config)/config/leg_visualization.rviz -f odom" />
+      args="-d $(find nav_exp_env)/proposed/config/forex.rviz -f odom" />
 </launch>

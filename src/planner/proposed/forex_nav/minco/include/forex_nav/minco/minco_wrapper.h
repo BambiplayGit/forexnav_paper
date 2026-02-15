@@ -57,7 +57,17 @@ public:
   // 设置规划高度
   void setFixedHeight(double height);
 
+  // 设置MINCO优化参数 (从NavParam传入, 替代硬编码)
+  void setMincoOptConfig(double weight_time, double weight_energy,
+                         double weight_pos, double weight_vel,
+                         double weight_acc, double weight_jerk,
+                         double max_jerk, double alloc_speed_ratio,
+                         double length_per_piece);
+
 private:
+  // 用户设置的MINCO优化参数
+  GCopter2D::OptConfig stored_config_;
+  bool has_user_config_ = false;
   SFCGenerator sfc_generator_;
   GCopter2D gcopter_;
   minco::MINCO_S3NU minco_solver_;  // Fallback solver
