@@ -128,62 +128,49 @@ class InpaintNode:
         self.config = config
         # self.bridge = CvBridge()
 
-        self.sub = rospy.Subscriber("/sdf_map/2d/image", RosImage, self.image_callback, queue_size=1, buff_size=2**24)
         self.pub = rospy.Publisher("/inpainted/image", RosImage, queue_size=1)
 
-        # ✅ 新增：从已存在的 grid map 读取元信息（分辨率 / 原点 / 大小 / frame）
-        src_map_topic = rospy.get_param("/sdf_map/2d", "/sdf_map/2d")  # 如有不同请用参数改
+        # Subscribe to the actual occupancy grid topic (same as map_predictor_node)
+        src_map_topic = rospy.get_param("~input_map", "/local_sensing/occupancy_grid")
         self.map_info_ready = False
         self.map_frame = None
         self.map_resolution = None
         self.map_origin_pose = Pose()
         self.map_size = None  # (width, height)
-        self.map_sub = rospy.Subscriber(src_map_topic, OccupancyGrid, self.map_info_callback, queue_size=1)
-        self.map_pub = rospy.Publisher("/inpainted/map", OccupancyGrid, queue_size=1)  
+        self.map_sub = rospy.Subscriber(src_map_topic, OccupancyGrid,
+                                        self.map_callback, queue_size=1, buff_size=2**24)
+        self.map_pub = rospy.Publisher("/inpainted/map", OccupancyGrid, queue_size=1)
 
         self.goal_pose = None
         self.goal_received = False
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
 
-        rospy.loginfo("InpaintNode initialized and listening to /sdf_map/2d/image")
+        rospy.loginfo("InpaintNode initialized and listening to %s", src_map_topic)
 
-    def imgmsg_to_cv2(self, img_msg):
-        import sys
-        import numpy as np
+    @staticmethod
+    def occupancy_grid_to_cv2(grid_msg):
+        """OccupancyGrid to grayscale: 100->0(black), 0->255(white), -1->127(grey)."""
+        w, h = grid_msg.info.width, grid_msg.info.height
+        arr = np.array(grid_msg.data, dtype=np.int8).reshape((h, w))
+        out = np.where(arr == 100, 0, np.where(arr == 0, 255, 127)).astype(np.uint8)
+        return out
 
-        # 支持的编码：mono8, bgr8
-        if img_msg.encoding == "mono8":
-            channels = 1
-        elif img_msg.encoding == "bgr8":
-            channels = 3
-        else:
-            raise ValueError(f"[imgmsg_to_cv2] Unsupported image encoding: {img_msg.encoding}")
-
-        dtype = np.dtype("uint8")
-        dtype = dtype.newbyteorder('>' if img_msg.is_bigendian else '<')
-
-        if channels == 1:
-            shape = (img_msg.height, img_msg.width)
-        else:  # channels == 3
-            shape = (img_msg.height, img_msg.width, 3)
-
-        expected_bytes = np.prod(shape)
-        if len(img_msg.data) < expected_bytes:
-            raise ValueError(f"[imgmsg_to_cv2] Buffer too small: expected {expected_bytes} bytes, got {len(img_msg.data)}")
-
-        image_opencv = np.ndarray(shape=shape, dtype=dtype, buffer=img_msg.data)
-
-        if img_msg.is_bigendian == (sys.byteorder == 'little'):
-            image_opencv = image_opencv.byteswap().newbyteorder()
-
-        return image_opencv
-
-    def map_info_callback(self, map_msg: OccupancyGrid):
+    def map_callback(self, map_msg):
+        """Unified callback: extract metadata + convert grid to image + run inpainting."""
+        # Update map metadata
         self.map_frame = map_msg.header.frame_id
         self.map_resolution = map_msg.info.resolution
         self.map_origin_pose = map_msg.info.origin
         self.map_size = (map_msg.info.width, map_msg.info.height)
         self.map_info_ready = True
+
+        # Convert OccupancyGrid to grayscale image and run pipeline
+        try:
+            cv_img = self.occupancy_grid_to_cv2(map_msg)
+        except Exception as e:
+            rospy.logerr("Failed to convert OccupancyGrid: %s", e)
+            return
+        self._run_inpainting(cv_img, map_msg.header)
 
     def goal_callback(self, msg: PoseStamped):
         if not self.map_info_ready:
@@ -222,33 +209,24 @@ class InpaintNode:
         return msg
         
     def image_to_occupancy_grid(self, cv_image, img_header):
-        """
-        将预测图变换为 OccupancyGrid：
-        - 顺时针旋转 90 度
-        - 上下翻转（图像原点左上 → ROS 地图原点左下）
-        - 使用用户提供的 origin / resolution（必须确保你是对的）
+        """Convert inpainted grayscale image back to OccupancyGrid.
+
+        Input comes from OccupancyGrid (already in grid frame), so no
+        rotation or flip is needed -- same as map_predictor_node.py.
         """
         grid = OccupancyGrid()
         grid.header.stamp = img_header.stamp
         grid.header.frame_id = self.map_frame or img_header.frame_id
 
-        # 🚨 先旋转90度：顺时针 (H,W) -> (W,H)
-        rotated = cv2.rotate(cv_image, cv2.ROTATE_90_CLOCKWISE)
-
-        # 🚨 再上下翻转，使得左上角对齐 ROS 左下角
-        aligned = np.flipud(rotated)
-
-        h, w = aligned.shape[:2]
+        h, w = cv_image.shape[:2]
         grid.info.width = w
         grid.info.height = h
-        grid.info.resolution = self.map_resolution  # ✅ 你输入网络之前就知道的值
-        grid.info.origin = self.map_origin_pose     # ✅ 你输入图在原始地图中的左下角世界坐标
+        grid.info.resolution = self.map_resolution
+        grid.info.origin = self.map_origin_pose
 
-        # ✅ 0-255 转占据概率（0: free, 100: occupied）
-        prob = (255 - aligned.astype(np.float32)) / 255.0 * 100.0
-        prob = np.clip(prob, 0, 100)
-
-        grid.data = prob.astype(np.int8).flatten().tolist()
+        # 0-255 grayscale -> occupancy probability (0: free, 100: occupied)
+        prob = (255 - cv_image.astype(np.float32)) / 255.0 * 100.0
+        grid.data = np.clip(prob, 0, 100).astype(np.int8).flatten().tolist()
         return grid
     def inject_goal_region_to_input(self, cv_img):
         if not self.goal_received or not self.map_info_ready:
@@ -278,15 +256,15 @@ class InpaintNode:
                 if 0 <= row < H and 0 <= col < W:
                     cv_img[row, col] = 255  # 白色区域，表示 free
 
-    def image_callback(self, msg):
-        try:
-            import cv_bridge
-            # print(cv_bridge.__file__)
-            cv_img = self.imgmsg_to_cv2(msg).copy()
-        except Exception as e:
-            rospy.logerr("Failed to convert image: %s", e)
-            return
-        # ✅ 在 cv_img 上根据 goal_pose 注入白色 255 区域
+    def _run_inpainting(self, cv_img, header):
+        """Run GAN inpainting using the CogniPlan prediction pipeline.
+
+        Faithfully reproduces CogniPlan's _update_predict_map:
+        1. Use first N_SAMPLE=4 priors (matching N_GEN_SAMPLE in CogniPlan)
+        2. Post-process each prediction independently (binarize + morphology)
+        3. Average the binarized predictions
+        No temporal smoothing or adaptive weighting is applied.
+        """
         if self.goal_received and self.map_info_ready:
             self.inject_goal_region_to_input(cv_img)
 
@@ -297,33 +275,30 @@ class InpaintNode:
             [1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
             [0.0, 0.0, 1.0],
-            [0.6, 0.2, 0.2],
-            [0.2, 0.6, 0.2],
-            [0.2, 0.2, 0.6],
+            # [0.6, 0.2, 0.2],
+            # [0.2, 0.6, 0.2],
+            # [0.2, 0.2, 0.6],
         ]).unsqueeze(1).float().to(self.device)
 
-        all_results = []
-        for i in range(onehots.size(0)):
+        N_SAMPLE = 4
+        predictions = []
+        for i in range(N_SAMPLE):
             onehot = onehots[i]
             _, inpainted = self.evaluator.eval_step(x, mask, onehot, img_raw_size=cv_img.shape[::-1])
-            all_results.append(inpainted)
+            x_pp = self.evaluator.post_process(inpainted, x_raw, kernel_size=5)
+            x_pp = np.where(x_pp > 0, 255, 1).astype(np.uint8)
+            predictions.append(x_pp)
 
-        avg_inpainted_result = torch.stack(all_results, dim=0).mean(dim=0)
-        # inpainted_processed = self.evaluator.post_process(avg_inpainted_result, x_raw, return_tensor=True)
-
-        np_result = avg_inpainted_result.squeeze().detach().cpu().numpy()
-        np_result = np.clip((np_result + 1) / 2, 0, 1)  # scale from [-1,1] to [0,1]
-        np_result = (np_result * 255).astype(np.uint8)
+        np_result = np.mean(predictions, axis=0).astype(np.uint8)
 
         try:
             out_msg = self.cv2_to_imgmsg(np_result, encoding='mono8')
-            out_msg.header = msg.header
+            out_msg.header = header
             self.pub.publish(out_msg)
-            grid_msg = self.image_to_occupancy_grid(np_result, msg.header)
+            grid_msg = self.image_to_occupancy_grid(np_result, header)
             self.map_pub.publish(grid_msg)
-
         except Exception as e:
-            rospy.logerr("Failed to publish inpainted image: %s", e)
+            rospy.logerr("Failed to publish inpainted result: %s", e)
 
 
 if __name__ == "__main__":
