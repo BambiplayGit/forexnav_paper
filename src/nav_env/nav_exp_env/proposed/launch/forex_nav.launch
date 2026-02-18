@@ -51,6 +51,7 @@
         <param name="minco/max_jerk" value="10.0" />
         <param name="minco/alloc_speed_ratio" value="1.0" />
         <param name="minco/length_per_piece" value="4.0" />
+        <param name="minco/weight_guide" value="100.0" />
     </node>
     
     <!-- Include map_predictor launch -->

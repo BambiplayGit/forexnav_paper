@@ -84,7 +84,8 @@ public:
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
     std::vector<double>& traj_time,
-    Trajectory<5>* out_traj = nullptr);
+    Trajectory<5>* out_traj = nullptr,
+    const std::vector<Vector3d>& ref_path = {});
 
   // Set parameters
   void setNavParam(const NavParam& param) { nav_param_ = param; }

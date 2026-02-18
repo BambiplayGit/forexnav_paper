@@ -43,7 +43,8 @@ public:
       std::vector<Vector3d>& traj_pos,
       std::vector<double>& traj_yaw,
       std::vector<double>& traj_time,
-      Trajectory<5>* out_traj = nullptr);
+      Trajectory<5>* out_traj = nullptr,
+      const std::vector<Vector3d>& ref_path = {});
 
   // Get the last generated corridors for visualization
   const std::vector<AABB2D>& getLastCorridors() const { return last_corridors_; }
@@ -62,7 +63,8 @@ public:
                          double weight_pos, double weight_vel,
                          double weight_acc, double weight_jerk,
                          double max_jerk, double alloc_speed_ratio,
-                         double length_per_piece);
+                         double length_per_piece,
+                         double weight_guide = 100.0);
 
 private:
   // 用户设置的MINCO优化参数

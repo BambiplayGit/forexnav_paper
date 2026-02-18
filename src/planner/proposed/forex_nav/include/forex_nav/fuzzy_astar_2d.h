@@ -128,7 +128,7 @@ private:
     if (i < 0 || i >= (int)map.data.size()) return -1;
 
     int8_t val = map.data[i];
-    if (val >= 80) return 8;       // predicted/known obstacle: very expensive but traversable
+    if (val >= 80) return 10;       // predicted/known obstacle: very expensive but traversable
     else if (val <= 40) return 1;  // free
     else return 2;                 // fuzzy/uncertain area
   }

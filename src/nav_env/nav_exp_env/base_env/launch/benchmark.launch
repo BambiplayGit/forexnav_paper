@@ -2,12 +2,12 @@
 <launch>
     <!-- ╔══════════════════════════════════════════════════════════╗ -->
     <!-- ║  直接在这里修改算法和地图，然后 roslaunch 即可           ║ -->
-    <!-- ║  Algorithms: forex_nav | frtree | cogniplan | rrtx      ║ -->
+    <!-- ║  Algorithms: forex_nav | frtree | cogniplan | rrtx | astar ║ -->
     <!-- ║  Maps: office1  office2  office3  complex_office        ║ -->
     <!-- ║        maze_simple  maze  tunnel1  cmu                  ║ -->
     <!-- ║        library  hkust1  hkust2  hkust3                  ║ -->
     <!-- ╚══════════════════════════════════════════════════════════╝ -->
-    <arg name="algorithm" default="rrtx" />
+    <arg name="algorithm" default="astar" />
     <arg name="map_name"  default="hkust1"   />
 
     <!-- ==================== 其他全局参数 ==================== -->
@@ -315,6 +315,26 @@
         <arg name="trans_z" value="$(arg trans_z)" />
     </include>
 
+    <!-- ==================== Algorithm: astar ==================== -->
+    <include file="$(find nav_exp_env)/traditional/launch/traditional_nav_legged.launch"
+             if="$(eval arg('algorithm') == 'astar')">
+        <arg name="max_vel" value="$(arg max_vel)" />
+        <arg name="max_acc" value="$(arg max_acc)" />
+        <arg name="map_x_size" value="$(arg map_x_size)" />
+        <arg name="map_y_size" value="$(arg map_y_size)" />
+        <arg name="planning_height" value="$(arg planning_height)" />
+        <arg name="robot_type" value="$(arg robot_type)" />
+        <arg name="rviz" value="$(arg rviz)" />
+        <arg name="init_x" value="$(arg init_x)" />
+        <arg name="init_y" value="$(arg init_y)" />
+        <arg name="init_yaw" value="$(arg init_yaw)" />
+        <arg name="pcd_file" value="$(arg pcd_file)" />
+        <arg name="rotate_z" value="$(arg rotate_z)" />
+        <arg name="trans_x" value="$(arg trans_x)" />
+        <arg name="trans_y" value="$(arg trans_y)" />
+        <arg name="trans_z" value="$(arg trans_z)" />
+    </include>
+
     <!-- ==================== Preset Goal Sender ==================== -->
     <!-- Click "Publish Point" in rviz to send preset goal to /move_base_simple/goal -->
     <!-- "2D Nav Goal" still works independently (different rviz tool, same topic) -->
@@ -327,10 +347,14 @@
     </node>
 
     <!-- ==================== Benchmark Metrics Recorder ==================== -->
+    <!-- Directly subscribes to /map_loader/global_cloud, runs A* for ideal path -->
     <node pkg="nav_exp_env" type="benchmark_recorder.py" name="benchmark_recorder" output="screen">
         <param name="algorithm" value="$(arg algorithm)" />
         <param name="map_name"  value="$(arg map_name)" />
         <param name="goal_reach_threshold" value="0.2" />
+        <param name="planning_height" value="$(arg planning_height)" />
+        <param name="grid_resolution" value="0.1" />
+        <param name="inflate_radius" value="0.25" />
     </node>
 
 </launch>

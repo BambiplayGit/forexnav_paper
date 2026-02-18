@@ -24,7 +24,7 @@ import threading
 import numpy as np
 import rospy
 
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, splprep, splev
 
 from geometry_msgs.msg import PoseArray, PoseStamped
 from nav_msgs.msg import Odometry, Path
@@ -54,6 +54,7 @@ class FRTreeTrajCmd(object):
         self.min_wp_dist = rospy.get_param("~min_wp_dist", 0.01)
         self.lookahead_dist = rospy.get_param("~lookahead_dist", 0.3)
         self.n_search = rospy.get_param("~n_search", 200)
+        self.smooth_dist = rospy.get_param("~smooth_dist", 0.1)
 
         # --- B-spline state (protected by lock) ---
         self.lock = threading.Lock()
@@ -61,9 +62,12 @@ class FRTreeTrajCmd(object):
         self.cs_y = None          # CubicSpline for y(s)
         self.total_arc = 0.0
         self.traj_valid = False
+        self.vel_profile_s = None   # arc-length samples for velocity profile
+        self.vel_profile_v = None   # pre-computed speed at each sample
 
         # --- Robot state ---
         self.robot_pos = None     # (x, y) numpy array
+        self.robot_vel = np.zeros(2)
         self.robot_yaw = 0.0
         self.last_yaw = 0.0
 
@@ -89,6 +93,8 @@ class FRTreeTrajCmd(object):
     def _cb_odom(self, msg):
         self.robot_pos = np.array([msg.pose.pose.position.x,
                                    msg.pose.pose.position.y])
+        self.robot_vel = np.array([msg.twist.twist.linear.x,
+                                   msg.twist.twist.linear.y])
         self.robot_yaw = quat_to_yaw(msg.pose.pose.orientation)
 
     def _cb_traj(self, msg):
@@ -137,6 +143,22 @@ class FRTreeTrajCmd(object):
 
         pts = np.array(wps)  # (N, 2)
 
+        # --- Smooth waypoints with B-spline approximation ---
+        # splprep with s>0 creates a smoothed B-spline that does not pass
+        # through every waypoint, naturally cutting corners at sharp turns.
+        if len(pts) >= 4 and self.smooth_dist > 0:
+            try:
+                s_param = len(pts) * self.smooth_dist ** 2
+                tck, _u = splprep([pts[:, 0], pts[:, 1]], s=s_param, k=3)
+                n_resample = max(len(pts) * 10, 100)
+                u_fine = np.linspace(0.0, 1.0, n_resample)
+                x_s, y_s = splev(u_fine, tck)
+                x_s[0], y_s[0] = pts[0, 0], pts[0, 1]
+                x_s[-1], y_s[-1] = pts[-1, 0], pts[-1, 1]
+                pts = np.column_stack([x_s, y_s])
+            except Exception as e:
+                rospy.logwarn("[FRTreeTrajCmd] splprep smoothing failed, using raw waypoints: %s", e)
+
         # --- Arc-length parameterization ---
         diffs = np.diff(pts, axis=0)
         seg_lens = np.linalg.norm(diffs, axis=1)
@@ -146,17 +168,12 @@ class FRTreeTrajCmd(object):
         if total_arc < 0.02:
             return
 
-        # --- Fit cubic B-spline x(s), y(s) ---
-        # 'not-a-knot' (default): no artificial straightening at endpoints,
-        #   preserves the natural curvature of the waypoints.
-        # 'natural' forces zero curvature at endpoints -> makes curve too straight.
+        # --- Fit cubic spline x(s), y(s) on (possibly smoothed) points ---
         try:
             if len(pts) >= 4:
-                # Enough points for 'not-a-knot' (needs >= 4 points)
-                cs_x = CubicSpline(arc, pts[:, 0])  # default = 'not-a-knot'
+                cs_x = CubicSpline(arc, pts[:, 0])
                 cs_y = CubicSpline(arc, pts[:, 1])
             elif len(pts) >= 2:
-                # Fallback for very few points
                 cs_x = CubicSpline(arc, pts[:, 0], bc_type='natural')
                 cs_y = CubicSpline(arc, pts[:, 1], bc_type='natural')
             else:
@@ -165,10 +182,16 @@ class FRTreeTrajCmd(object):
             rospy.logwarn("[FRTreeTrajCmd] CubicSpline fit failed: %s", e)
             return
 
+        # --- Pre-compute curvature-limited velocity profile ---
+        robot_speed = float(np.linalg.norm(self.robot_vel))
+        prof_s, prof_v = self._build_velocity_profile(cs_x, cs_y, total_arc, robot_speed)
+
         with self.lock:
             self.cs_x = cs_x
             self.cs_y = cs_y
             self.total_arc = total_arc
+            self.vel_profile_s = prof_s
+            self.vel_profile_v = prof_v
             self.traj_valid = True
 
         rospy.loginfo("[FRTreeTrajCmd] New B-spline: arc=%.2fm, wps=%d",
@@ -202,6 +225,60 @@ class FRTreeTrajCmd(object):
         self.pub_bspline_path.publish(path_msg)
 
     # ==================================================================
+    # Curvature-limited velocity profile
+    # ==================================================================
+    def _build_velocity_profile(self, cs_x, cs_y, total_arc, start_speed=0.0):
+        """Pre-compute a velocity profile that respects curvature + accel limits.
+
+        Algorithm:
+          1. Sample curvature kappa(s) along the spline.
+          2. At each sample, the curvature speed limit is v_curv = sqrt(a_max / |kappa|).
+          3. Forward pass:  v[i] = min(v_curv[i], sqrt(v[i-1]^2 + 2*a_max*ds))
+          4. Backward pass: v[i] = min(v[i],      sqrt(v[i+1]^2 + 2*a_max*ds))
+          5. Clamp to [0, max_vel].
+
+        This is equivalent to what ForexNav achieves via feasibility-constrained
+        B-spline optimisation, but computed directly.
+        """
+        n_samples = max(int(total_arc / 0.02), 50)
+        s_arr = np.linspace(0.0, total_arc, n_samples)
+        ds = s_arr[1] - s_arr[0] if n_samples > 1 else total_arc
+
+        dx = cs_x(s_arr, 1)
+        dy = cs_y(s_arr, 1)
+        ddx = cs_x(s_arr, 2)
+        ddy = cs_y(s_arr, 2)
+
+        speed_sq = dx * dx + dy * dy
+        speed_32 = np.power(np.maximum(speed_sq, 1e-12), 1.5)
+        kappa = np.abs(dx * ddy - dy * ddx) / speed_32
+
+        a_lat = self.max_acc * 0.8
+        v_curv = np.where(kappa > 1e-6,
+                          np.sqrt(a_lat / np.maximum(kappa, 1e-6)),
+                          self.max_vel)
+        v_curv = np.minimum(v_curv, self.max_vel)
+
+        v_fwd = np.copy(v_curv)
+        v_fwd[0] = min(v_curv[0], max(start_speed, 0.0))
+        for i in range(1, n_samples):
+            v_max_here = math.sqrt(v_fwd[i-1] ** 2 + 2.0 * self.max_acc * ds)
+            v_fwd[i] = min(v_fwd[i], v_max_here)
+
+        v_bwd = np.copy(v_fwd)
+        v_bwd[-1] = 0.0
+        for i in range(n_samples - 2, -1, -1):
+            v_max_here = math.sqrt(v_bwd[i+1] ** 2 + 2.0 * self.max_acc * ds)
+            v_bwd[i] = min(v_bwd[i], v_max_here)
+
+        v_bwd = np.clip(v_bwd, 0.0, self.max_vel)
+        return s_arr, v_bwd
+
+    def _lookup_speed(self, s, prof_s, prof_v):
+        """Linearly interpolate the pre-computed velocity profile at arc-length s."""
+        return float(np.interp(s, prof_s, prof_v))
+
+    # ==================================================================
     # Timer callback: publish PositionCommand at ~50 Hz
     # ==================================================================
     def _timer_cb(self, event):
@@ -214,6 +291,8 @@ class FRTreeTrajCmd(object):
             cs_x = self.cs_x
             cs_y = self.cs_y
             total_arc = self.total_arc
+            prof_s = self.vel_profile_s
+            prof_v = self.vel_profile_v
 
         # ---------------------------------------------------------
         # 1. Find closest point on B-spline to robot position
@@ -253,15 +332,9 @@ class FRTreeTrajCmd(object):
             tx, ty = 1.0, 0.0
 
         # ---------------------------------------------------------
-        # 5. Speed profile (trapezoidal along arc-length)
+        # 5. Curvature-aware speed from pre-computed velocity profile
         # ---------------------------------------------------------
-        dist_to_end = total_arc - s_closest
-        dist_from_start = s_closest
-
-        v_dec = math.sqrt(max(2.0 * self.max_acc * dist_to_end, 0.0))
-        v_acc = math.sqrt(max(2.0 * self.max_acc * dist_from_start, 0.0))
-        speed = min(self.max_vel, v_dec, v_acc)
-        speed = max(speed, 0.0)
+        speed = self._lookup_speed(s_closest, prof_s, prof_v)
 
         # ---------------------------------------------------------
         # 6. Compute velocity v = tangent * speed
@@ -270,14 +343,15 @@ class FRTreeTrajCmd(object):
         vy = ty * speed
 
         # ---------------------------------------------------------
-        # 7. Compute acceleration
+        # 7. Acceleration from finite-difference of velocity profile
         # ---------------------------------------------------------
-        if dist_to_end < speed * speed / (2.0 * self.max_acc + 1e-6):
-            a_tangential = -self.max_acc
-        elif dist_from_start < speed * speed / (2.0 * self.max_acc + 1e-6):
-            a_tangential = self.max_acc
+        ds_fd = 0.05
+        if s_closest + ds_fd <= total_arc:
+            v_ahead = self._lookup_speed(s_closest + ds_fd, prof_s, prof_v)
+            a_tangential = (v_ahead ** 2 - speed ** 2) / (2.0 * ds_fd + 1e-9)
+            a_tangential = max(-self.max_acc, min(a_tangential, self.max_acc))
         else:
-            a_tangential = 0.0
+            a_tangential = -self.max_acc if speed > 0.01 else 0.0
 
         ax = tx * a_tangential
         ay = ty * a_tangential

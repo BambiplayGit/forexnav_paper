@@ -2,8 +2,11 @@
 <launch>
     <!-- Arguments -->
     <arg name="rviz" default="true" />
+    <arg name="max_vel" default="2.0" />
+    <arg name="max_acc" default="2.0" />
     <arg name="map_x_size" default="20.0" />
     <arg name="map_y_size" default="30.0" />
+    <arg name="planning_height" default="0.4" />
 
     <!-- Include base navigation environment (disable its rviz) -->
     <include file="$(find nav_exp_env)/base_env/launch/nav_env.launch">
@@ -12,23 +15,31 @@
         <arg name="map_y_size" value="$(arg map_y_size)" />
     </include>
 
-    <!-- Traditional planner node -->
+    <!-- Traditional planner: A* + B-spline PositionCommand (self-contained) -->
     <node pkg="traditional_planner" type="traditional_node.py" name="traditional_planner" output="screen">
         <param name="robot_radius" value="0.3" />
         <param name="replan_rate" value="2.0" />
         <param name="goal_reach_thresh" value="0.5" />
-        <param name="path_downsample" value="5" />
         <param name="obstacle_thresh" value="50" />
-    </node>
-
-    <!-- Polynomial trajectory smoother -->
-    <node pkg="nav_exp_env" type="poly_traj_smoother.py" name="poly_traj_smoother" output="screen">
-        <param name="path_topic" value="/planning/raw_path" />
-        <param name="max_vel"  value="4.0" />
-        <param name="max_acc"  value="2.0" />
-        <param name="max_jerk" value="10.0" />
+        <param name="w_heuristic" value="1.5" />
+        <param name="cost_near_obs" value="3.0" />
+        <param name="obs_cost_radius" value="5" />
+        <param name="use_4connected" value="true" />
+        <param name="stop_and_go" value="true" />
+        <param name="replan_delay" value="0.3" />
+        <param name="max_vel" value="$(arg max_vel)" />
+        <param name="max_acc" value="$(arg max_acc)" />
         <param name="publish_rate" value="50.0" />
-        <param name="fixed_z" value="1.0" />
+        <param name="fixed_z" value="$(arg planning_height)" />
+        <param name="traj_length" value="5.0" />
+        <param name="lookahead_dist" value="0.3" />
+        <param name="w_smooth" value="1.0" />
+        <param name="end_zone_arc" value="0.3" />
+        <param name="replan_ahead" value="1.5" />
+        <param name="alloc_speed_ratio" value="0.6" />
+        <param name="acc_ratio" value="0.4" />
+        <param name="lat_acc_ratio" value="0.3" />
+        <param name="vel_smooth_window" value="0.4" />
     </node>
 
     <!-- RViz -->

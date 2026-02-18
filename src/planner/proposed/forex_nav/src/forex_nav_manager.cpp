@@ -39,7 +39,8 @@ void ForexNavManager::initialize() {
       nav_param_.minco_weight_jerk_,
       nav_param_.minco_max_jerk_,
       nav_param_.minco_alloc_speed_ratio_,
-      nav_param_.minco_length_per_piece_);
+      nav_param_.minco_length_per_piece_,
+      nav_param_.minco_weight_guide_);
 }
 
 void ForexNavManager::setMap(const nav_msgs::OccupancyGrid::ConstPtr& map) {
@@ -143,6 +144,9 @@ int ForexNavManager::planNavMotion(
     // If total path length < local_goal_max_dist, keep as is (no trimming needed)
   }
   
+  // Save dense A* reference path (after trimming, before shortening) for MINCO guide penalty
+  std::vector<Vector3d> dense_ref_path = temp_path;
+  
   // Step 2.5: Shorten path to remove redundant waypoints
   shortenPath(temp_path);
   
@@ -161,12 +165,10 @@ int ForexNavManager::planNavMotion(
   std::vector<double> temp_yaws;
   for (size_t i = 0; i < temp_path.size(); ++i) {
     if (i < temp_path.size() - 1) {
-      // Yaw points in the direction of next waypoint
       double path_yaw = std::atan2(temp_path[i + 1].y() - temp_path[i].y(),
                                    temp_path[i + 1].x() - temp_path[i].x());
       temp_yaws.push_back(path_yaw);
     } else {
-      // Last point uses selected_yaw
       temp_yaws.push_back(selected_yaw);
     }
   }
@@ -175,12 +177,11 @@ int ForexNavManager::planNavMotion(
   Vector3d end_vel = Vector3d::Zero();
   double dist_selected_to_goal = (selected_pos - goal_pos).norm();
   if (selected_v_limit > 0.01 && dist_selected_to_goal > 0.5) {
-    // Intermediate viewpoint: maintain velocity toward goal
     Vector3d dir_to_goal = (goal_pos - selected_pos).normalized();
     end_vel = selected_v_limit * dir_to_goal;
   }
   Vector3d start_acc = Vector3d::Zero();
-  generateMINCOTrajectory(temp_path, temp_yaws, vel, start_acc, yaw, end_vel, selected_yaw, path, yaws, times, out_traj);
+  generateMINCOTrajectory(temp_path, temp_yaws, vel, start_acc, yaw, end_vel, selected_yaw, path, yaws, times, out_traj, dense_ref_path);
   
   return 0;  // SUCCESS
 }
@@ -521,7 +522,8 @@ void ForexNavManager::generateMINCOTrajectory(
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
     std::vector<double>& traj_time,
-    Trajectory<5>* out_traj) {
+    Trajectory<5>* out_traj,
+    const std::vector<Vector3d>& ref_path) {
   
   traj_pos.clear();
   traj_yaw.clear();
@@ -550,7 +552,8 @@ void ForexNavManager::generateMINCOTrajectory(
         traj_pos,
         traj_yaw,
         traj_time,
-        out_traj);
+        out_traj,
+        ref_path);
     
     if (success && !traj_pos.empty()) {
       std::cout << "[ForexNav] MINCO trajectory generated successfully: " 

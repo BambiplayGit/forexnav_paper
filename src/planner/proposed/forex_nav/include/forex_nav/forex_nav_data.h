@@ -100,6 +100,7 @@ struct NavParam {
   double minco_max_jerk_;            // 最大jerk约束 (m/s^3)
   double minco_alloc_speed_ratio_;   // 初始时间分配速度 = max_vel * ratio
   double minco_length_per_piece_;    // 每段多项式目标长度 (m)
+  double minco_weight_guide_;        // A*参考路径跟踪权重 (越大越贴合A*路径)
   
   NavParam()
     : w_dist_(2.0), w_pred_(1.5), w_curve_(0.3), w_homo_(0.3),
@@ -111,7 +112,7 @@ struct NavParam {
       minco_weight_pos_(2000.0), minco_weight_vel_(100.0),
       minco_weight_acc_(80.0), minco_weight_jerk_(30.0),
       minco_max_jerk_(15.0), minco_alloc_speed_ratio_(0.7),
-      minco_length_per_piece_(2.0) {}
+      minco_length_per_piece_(2.0), minco_weight_guide_(100.0) {}
 };
 
 }  // namespace forex_nav

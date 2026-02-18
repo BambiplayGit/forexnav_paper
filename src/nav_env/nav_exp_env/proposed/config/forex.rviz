@@ -186,7 +186,7 @@ Visualization Manager:
       Marker Topic: /odom_path
       Name: Marker
       Namespaces:
-        odom_path: true
+        {}
       Queue Size: 100
       Value: true
     - Alpha: 1
@@ -348,7 +348,7 @@ Visualization Manager:
       Marker Topic: /inpainted/markers_3d
       Name: Marker
       Namespaces:
-        {}
+        inpainted_voxels_unknown_only: true
       Queue Size: 100
       Value: true
     - Class: rviz/MarkerArray
@@ -427,7 +427,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 69.8896484375
+      Distance: 87.66957092285156
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -435,17 +435,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: -11.142030715942383
-        Y: -14.002830505371094
+        X: -15.020133972167969
+        Y: -20.596294403076172
         Z: 1.881382013380062e-05
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5647963285446167
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.150397300720215
+      Yaw: 3.150397539138794
     Saved:
       - Class: rviz/XYOrbit
         Distance: 30.239601135253906

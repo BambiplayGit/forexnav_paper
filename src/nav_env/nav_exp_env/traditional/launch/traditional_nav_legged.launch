@@ -1,0 +1,68 @@
+<launch>
+  <!-- A* + B-spline + legged simulation (mirrors rrtx_nav_legged.launch) -->
+  <arg name="max_vel" default="2.0" />
+  <arg name="max_acc" default="2.0" />
+  <arg name="map_x_size" default="20.0" />
+  <arg name="map_y_size" default="30.0" />
+  <arg name="planning_height" default="0.4" />
+  <arg name="robot_type" default="zsl-1" />
+  <arg name="rviz" default="true" />
+  <!-- Map loading params -->
+  <arg name="init_x" default="-6.0" />
+  <arg name="init_y" default="10.0" />
+  <arg name="init_yaw" default="-1.57" />
+  <arg name="pcd_file" default="office.pcd" />
+  <arg name="rotate_z" default="0.0" />
+  <arg name="trans_x" default="0.0" />
+  <arg name="trans_y" default="0.0" />
+  <arg name="trans_z" default="-0.3" />
+
+  <!-- ============== Base Environment (legged) ============== -->
+  <include file="$(find nav_exp_env)/base_env/launch/nav_env_legged.launch">
+    <arg name="rviz" value="false" />
+    <arg name="use_click_pos_cmd" value="false" />
+    <arg name="map_x_size" value="$(arg map_x_size)" />
+    <arg name="map_y_size" value="$(arg map_y_size)" />
+    <arg name="planning_height" value="$(arg planning_height)" />
+    <arg name="robot_type" value="$(arg robot_type)" />
+    <arg name="init_x" value="$(arg init_x)" />
+    <arg name="init_y" value="$(arg init_y)" />
+    <arg name="init_yaw" value="$(arg init_yaw)" />
+    <arg name="pcd_file" value="$(arg pcd_file)" />
+    <arg name="rotate_z" value="$(arg rotate_z)" />
+    <arg name="trans_x" value="$(arg trans_x)" />
+    <arg name="trans_y" value="$(arg trans_y)" />
+    <arg name="trans_z" value="$(arg trans_z)" />
+  </include>
+
+  <!-- ============== Traditional Planner (A* + B-spline PositionCommand) ============== -->
+  <node pkg="traditional_planner" type="traditional_node.py" name="traditional_planner" output="screen">
+    <param name="robot_radius" value="0.3" />
+    <param name="replan_rate" value="5.0" />
+    <param name="goal_reach_thresh" value="0.4" />
+    <param name="obstacle_thresh" value="50" />
+    <param name="w_heuristic" value="2.0" />
+    <param name="cost_near_obs" value="3.0" />
+    <param name="obs_cost_radius" value="5" />
+    <param name="use_4connected" value="true" />
+    <param name="stop_and_go" value="false" />
+    <param name="replan_delay" value="0.3" />
+    <param name="max_vel" value="$(arg max_vel)" />
+    <param name="max_acc" value="$(arg max_acc)" />
+    <param name="publish_rate" value="50.0" />
+    <param name="fixed_z" value="$(arg planning_height)" />
+    <param name="traj_length" value="5.0" />
+    <param name="lookahead_dist" value="0.3" />
+    <param name="w_smooth" value="5.0" />
+    <param name="end_zone_arc" value="0.3" />
+    <param name="replan_ahead" value="1.5" />
+    <param name="alloc_speed_ratio" value="0.8" />
+    <param name="acc_ratio" value="0.5" />
+    <param name="lat_acc_ratio" value="0.3" />
+    <param name="vel_smooth_window" value="0.4" />
+  </node>
+
+  <!-- ============== RViz (legged visualization) ============== -->
+  <node if="$(arg rviz)" pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
+        args="-d $(find nav_exp_env)/proposed/config/forex.rviz -f odom" />
+</launch>

@@ -20,7 +20,7 @@ import threading
 import numpy as np
 import rospy
 
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, splprep, splev
 
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry, Path
@@ -49,8 +49,8 @@ class RRTxTrajCmd(object):
         self.min_wp_dist = rospy.get_param("~min_wp_dist", 0.01)
         self.lookahead_dist = rospy.get_param("~lookahead_dist", 0.3)
         self.n_search = rospy.get_param("~n_search", 200)
-        # 轨迹终点邻域弧长(m)：进入此范围后末端速度置 0（仅 RRTX 使用）
-        self.end_zone_arc = rospy.get_param("~end_zone_arc", 0.05)
+        self.smooth_dist = rospy.get_param("~smooth_dist", 0.1)
+        self.end_zone_arc = rospy.get_param("~end_zone_arc", 0.3)
 
         # --- B-spline state (protected by lock) ---
         self.lock = threading.Lock()
@@ -58,6 +58,8 @@ class RRTxTrajCmd(object):
         self.cs_y = None
         self.total_arc = 0.0
         self.traj_valid = False
+        self.vel_profile_s = None
+        self.vel_profile_v = None
 
         # --- Robot state ---
         self.robot_pos = None
@@ -107,6 +109,20 @@ class RRTxTrajCmd(object):
             wps[0] = self.robot_pos.copy()
 
         pts = np.array(wps)
+
+        if len(pts) >= 4 and self.smooth_dist > 0:
+            try:
+                s_param = len(pts) * self.smooth_dist ** 2
+                tck, _u = splprep([pts[:, 0], pts[:, 1]], s=s_param, k=3)
+                n_resample = max(len(pts) * 10, 100)
+                u_fine = np.linspace(0.0, 1.0, n_resample)
+                x_s, y_s = splev(u_fine, tck)
+                x_s[0], y_s[0] = pts[0, 0], pts[0, 1]
+                x_s[-1], y_s[-1] = pts[-1, 0], pts[-1, 1]
+                pts = np.column_stack([x_s, y_s])
+            except Exception as e:
+                rospy.logwarn("[RRTxTrajCmd] splprep smoothing failed, using raw waypoints: %s", e)
+
         diffs = np.diff(pts, axis=0)
         seg_lens = np.linalg.norm(diffs, axis=1)
         arc = np.zeros(len(pts))
@@ -128,10 +144,15 @@ class RRTxTrajCmd(object):
             rospy.logwarn("[RRTxTrajCmd] CubicSpline fit failed: %s", e)
             return
 
+        robot_speed = float(np.linalg.norm(self.robot_vel))
+        prof_s, prof_v = self._build_velocity_profile(cs_x, cs_y, total_arc, robot_speed)
+
         with self.lock:
             self.cs_x = cs_x
             self.cs_y = cs_y
             self.total_arc = total_arc
+            self.vel_profile_s = prof_s
+            self.vel_profile_v = prof_v
             self.traj_valid = True
 
         rospy.loginfo("[RRTxTrajCmd] New B-spline: arc=%.2fm, wps=%d", total_arc, len(wps))
@@ -154,6 +175,48 @@ class RRTxTrajCmd(object):
             path_msg.poses.append(ps)
         self.pub_bspline_path.publish(path_msg)
 
+    # ==================================================================
+    # Curvature-limited velocity profile
+    # ==================================================================
+    def _build_velocity_profile(self, cs_x, cs_y, total_arc, start_speed=0.0):
+        """Pre-compute a velocity profile respecting curvature + accel limits."""
+        n_samples = max(int(total_arc / 0.02), 50)
+        s_arr = np.linspace(0.0, total_arc, n_samples)
+        ds = s_arr[1] - s_arr[0] if n_samples > 1 else total_arc
+
+        dx = cs_x(s_arr, 1)
+        dy = cs_y(s_arr, 1)
+        ddx = cs_x(s_arr, 2)
+        ddy = cs_y(s_arr, 2)
+
+        speed_sq = dx * dx + dy * dy
+        speed_32 = np.power(np.maximum(speed_sq, 1e-12), 1.5)
+        kappa = np.abs(dx * ddy - dy * ddx) / speed_32
+
+        a_lat = self.max_acc * 0.8
+        v_curv = np.where(kappa > 1e-6,
+                          np.sqrt(a_lat / np.maximum(kappa, 1e-6)),
+                          self.max_vel)
+        v_curv = np.minimum(v_curv, self.max_vel)
+
+        v_fwd = np.copy(v_curv)
+        v_fwd[0] = min(v_curv[0], max(start_speed, 0.0))
+        for i in range(1, n_samples):
+            v_max_here = math.sqrt(v_fwd[i-1] ** 2 + 2.0 * self.max_acc * ds)
+            v_fwd[i] = min(v_fwd[i], v_max_here)
+
+        v_bwd = np.copy(v_fwd)
+        v_bwd[-1] = 0.0
+        for i in range(n_samples - 2, -1, -1):
+            v_max_here = math.sqrt(v_bwd[i+1] ** 2 + 2.0 * self.max_acc * ds)
+            v_bwd[i] = min(v_bwd[i], v_max_here)
+
+        v_bwd = np.clip(v_bwd, 0.0, self.max_vel)
+        return s_arr, v_bwd
+
+    def _lookup_speed(self, s, prof_s, prof_v):
+        return float(np.interp(s, prof_s, prof_v))
+
     def _timer_cb(self, event):
         with self.lock:
             if not self.traj_valid or self.robot_pos is None:
@@ -163,6 +226,8 @@ class RRTxTrajCmd(object):
             cs_x = self.cs_x
             cs_y = self.cs_y
             total_arc = self.total_arc
+            prof_s = self.vel_profile_s
+            prof_v = self.vel_profile_v
 
         n = self.n_search
         s_samples = np.linspace(0.0, total_arc, n + 1)
@@ -189,32 +254,24 @@ class RRTxTrajCmd(object):
             tx, ty = 1.0, 0.0
 
         dist_to_end = total_arc - s_closest
-        dist_from_start = s_closest
 
-        # RRTX: end zone -- force speed to 0 at trajectory endpoint
+        # RRTX: end zone -- hold robot at current position to prevent
+        # the PD controller from driving it toward the trajectory endpoint
         if dist_to_end <= self.end_zone_arc:
             speed = 0.0
             a_tangential = 0.0
-            px = float(cs_x(total_arc))
-            py = float(cs_y(total_arc))
-            if total_arc >= 0.01:
-                dpx_ds = float(cs_x(total_arc, 1))
-                dpy_ds = float(cs_y(total_arc, 1))
-                n_t = math.sqrt(dpx_ds ** 2 + dpy_ds ** 2)
-                if n_t > 1e-6:
-                    tx, ty = dpx_ds / n_t, dpy_ds / n_t
+            px = float(self.robot_pos[0])
+            py = float(self.robot_pos[1])
         else:
-            v_cur = math.sqrt(self.robot_vel[0] ** 2 + self.robot_vel[1] ** 2)
-            v_acc = math.sqrt(max(v_cur ** 2 + 2.0 * self.max_acc * dist_from_start, 0.0))
-            v_dec = math.sqrt(max(2.0 * self.max_acc * dist_to_end, 0.0))
-            speed = min(self.max_vel, v_acc, v_dec)
-            speed = max(speed, 0.0)
-            if dist_to_end < speed * speed / (2.0 * self.max_acc + 1e-6):
-                a_tangential = -self.max_acc
-            elif v_cur < self.max_vel and dist_from_start < speed * speed / (2.0 * self.max_acc + 1e-6):
-                a_tangential = self.max_acc
+            speed = self._lookup_speed(s_closest, prof_s, prof_v)
+
+            ds_fd = 0.05
+            if s_closest + ds_fd <= total_arc:
+                v_ahead = self._lookup_speed(s_closest + ds_fd, prof_s, prof_v)
+                a_tangential = (v_ahead ** 2 - speed ** 2) / (2.0 * ds_fd + 1e-9)
+                a_tangential = max(-self.max_acc, min(a_tangential, self.max_acc))
             else:
-                a_tangential = 0.0
+                a_tangential = -self.max_acc if speed > 0.01 else 0.0
 
         vx = tx * speed
         vy = ty * speed

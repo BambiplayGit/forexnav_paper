@@ -18,13 +18,15 @@ void MincoWrapper::setMincoOptConfig(double weight_time, double weight_energy,
                                      double weight_pos, double weight_vel,
                                      double weight_acc, double weight_jerk,
                                      double max_jerk, double alloc_speed_ratio,
-                                     double length_per_piece) {
+                                     double length_per_piece,
+                                     double weight_guide) {
     stored_config_.weight_time = weight_time;
     stored_config_.weight_energy = weight_energy;
     stored_config_.weight_pos = weight_pos;
     stored_config_.weight_vel = weight_vel;
     stored_config_.weight_acc = weight_acc;
     stored_config_.weight_jerk = weight_jerk;
+    stored_config_.weight_guide = weight_guide;
     stored_config_.max_jerk = max_jerk;
     stored_config_.alloc_speed = alloc_speed_ratio;  // 暂存 ratio, generateTrajectory 中乘以 max_vel
     stored_config_.length_per_piece = length_per_piece;
@@ -32,7 +34,8 @@ void MincoWrapper::setMincoOptConfig(double weight_time, double weight_energy,
     std::cout << "[MincoWrapper] OptConfig set: wt=" << weight_time
               << " we=" << weight_energy << " wp=" << weight_pos
               << " wv=" << weight_vel << " wa=" << weight_acc
-              << " wj=" << weight_jerk << " mj=" << max_jerk
+              << " wj=" << weight_jerk << " wg=" << weight_guide
+              << " mj=" << max_jerk
               << " asr=" << alloc_speed_ratio << " lpp=" << length_per_piece << std::endl;
 }
 
@@ -76,7 +79,8 @@ bool MincoWrapper::generateTrajectory(
     std::vector<Vector3d>& traj_pos,
     std::vector<double>& traj_yaw,
     std::vector<double>& traj_time,
-    Trajectory<5>* out_traj) {
+    Trajectory<5>* out_traj,
+    const std::vector<Vector3d>& ref_path) {
     
     if (waypoints.size() < 2) {
         std::cout << "[MincoWrapper] Error: Need at least 2 waypoints, got " << waypoints.size() << std::endl;
@@ -137,7 +141,6 @@ bool MincoWrapper::generateTrajectory(
     config.max_vel = max_vel;
     config.max_acc = max_acc;
     if (has_user_config_) {
-        // 使用外部设置的参数 (来自 ROS param / launch 文件)
         config.max_jerk = stored_config_.max_jerk;
         config.weight_time = stored_config_.weight_time;
         config.weight_energy = stored_config_.weight_energy;
@@ -145,16 +148,17 @@ bool MincoWrapper::generateTrajectory(
         config.weight_vel = stored_config_.weight_vel;
         config.weight_acc = stored_config_.weight_acc;
         config.weight_jerk = stored_config_.weight_jerk;
+        config.weight_guide = stored_config_.weight_guide;
         config.alloc_speed = max_vel * stored_config_.alloc_speed;  // stored_config_.alloc_speed 存的是 ratio
         config.length_per_piece = stored_config_.length_per_piece;
     } else {
-        // 后备硬编码默认值 (与原始行为一致)
         config.max_jerk = 15.0;
         config.weight_time = 30.0;
         config.weight_pos = 2000.0;
         config.weight_vel = 100.0;
         config.weight_acc = 80.0;
         config.weight_jerk = 30.0;
+        config.weight_guide = 100.0;
         config.alloc_speed = max_vel * 0.7;
     }
     config.smooth_eps = 0.01;
@@ -162,6 +166,10 @@ bool MincoWrapper::generateTrajectory(
     config.rel_cost_tol = 1e-4;
     
     gcopter_.setConfig(config);
+    
+    if (!ref_path.empty()) {
+        gcopter_.setReferencePath(ref_path);
+    }
     
     Trajectory<5> traj;
     bool success = gcopter_.optimize(actual_waypoints, corridors, headPVA, tailPVA, traj);

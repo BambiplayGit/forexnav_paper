@@ -30,6 +30,7 @@ public:
         double weight_vel = 100.0;
         double weight_acc = 100.0;
         double weight_jerk = 50.0;
+        double weight_guide = 100.0;
         double smooth_eps = 0.01;
         int integral_resolution = 16;
         double max_vel = 4.0;
@@ -42,6 +43,10 @@ public:
     
     void setConfig(const OptConfig& config) { config_ = config; }
     
+    void setReferencePath(const std::vector<Eigen::Vector3d>& path) {
+        refPath_ = path;
+    }
+    
     bool optimize(
         const std::vector<Eigen::Vector3d>& path,
         const std::vector<AABB2D>& corridors,
@@ -52,6 +57,10 @@ public:
         if (path.size() < 2 || corridors.empty()) {
             std::cout << "[GCopter2D] Error: Invalid input" << std::endl;
             return false;
+        }
+        
+        if (refPath_.empty()) {
+            refPath_ = path;
         }
         
         headPVA_ = initPVA;
@@ -140,6 +149,7 @@ private:
     Eigen::VectorXi hPolyIdx_;
     
     Eigen::Matrix3Xd shortPath_;
+    std::vector<Eigen::Vector3d> refPath_;
     
     Eigen::Matrix3Xd points_;
     Eigen::VectorXd times_;
@@ -311,6 +321,25 @@ private:
         }
     }
     
+    Eigen::Vector3d closestPointOnRefPath(const Eigen::Vector3d& pt) const {
+        Eigen::Vector3d best = refPath_[0];
+        double bestDistSq = (pt - best).squaredNorm();
+        for (size_t i = 0; i + 1 < refPath_.size(); ++i) {
+            const Eigen::Vector3d& a = refPath_[i];
+            const Eigen::Vector3d& b = refPath_[i + 1];
+            Eigen::Vector3d ab = b - a;
+            double lenSq = ab.squaredNorm();
+            double t = (lenSq > 1e-12) ? std::max(0.0, std::min(1.0, (pt - a).dot(ab) / lenSq)) : 0.0;
+            Eigen::Vector3d proj = a + t * ab;
+            double dSq = (pt - proj).squaredNorm();
+            if (dSq < bestDistSq) {
+                bestDistSq = dSq;
+                best = proj;
+            }
+        }
+        return best;
+    }
+    
     void addPenalty(double& cost, Eigen::VectorXd& gradT, Eigen::MatrixX3d& gradC) {
         const double velSqrMax = config_.max_vel * config_.max_vel;
         const double accSqrMax = config_.max_acc * config_.max_acc;
@@ -375,6 +404,14 @@ private:
                         gradPos += config_.weight_pos * violaPosPenaD * outerNormal;
                         pena += config_.weight_pos * violaPosPena;
                     }
+                }
+                
+                if (config_.weight_guide > 0.0 && refPath_.size() >= 2) {
+                    Eigen::Vector3d closest = closestPointOnRefPath(pos);
+                    Eigen::Vector3d diff = pos - closest;
+                    double distSq = diff.squaredNorm();
+                    gradPos += config_.weight_guide * 2.0 * diff;
+                    pena += config_.weight_guide * distSq;
                 }
                 
                 if (smoothedL1(violaVel, config_.smooth_eps, violaVelPena, violaVelPenaD)) {

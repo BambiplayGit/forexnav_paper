@@ -60,6 +60,7 @@ void ForexNavFSM::init() {
   pnh_.param("minco/max_jerk", nav_param.minco_max_jerk_, nav_param.minco_max_jerk_);
   pnh_.param("minco/alloc_speed_ratio", nav_param.minco_alloc_speed_ratio_, nav_param.minco_alloc_speed_ratio_);
   pnh_.param("minco/length_per_piece", nav_param.minco_length_per_piece_, nav_param.minco_length_per_piece_);
+  pnh_.param("minco/weight_guide", nav_param.minco_weight_guide_, nav_param.minco_weight_guide_);
   
   manager_->initialize();
   
