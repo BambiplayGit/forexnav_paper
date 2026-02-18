@@ -34,7 +34,7 @@
         cwd="node" ns="cogniplan"
         launch-prefix="/home/songhy/miniconda3/envs/forexnav/bin/python3">
     <!-- Topic remapping -->
-    <remap from="/projected_map" to="/local_sensing/occupancy_grid" />
+    <remap from="/projected_map" to="/local_sensing/occupancy_grid_inflate" />
     <remap from="/state_estimation" to="/odom" />
     
     <!-- Parameters -->
@@ -45,6 +45,7 @@
     <param name="waypoint_threshold" value="1.0"/>
     <param name="goal_reached_threshold" value="0.5"/>
     <param name="replanning_frequency" value="2.0"/>
+    <param name="obstacle_inflate_radius" value="0.3"/>
   </node>
 
   <!-- B-spline trajectory commander: /planning/raw_path -> /planning/pos_cmd (PositionCommand) -->

@@ -23,10 +23,10 @@ plan_manager/control_points_distance: 0.3
 # ----------------------------------------------------------------------------------
 # 4. Bspline optimizer for local traj (optimization/)
 optimization/lambda_smooth: 5.0
-optimization/lambda_collision: 10.5
+optimization/lambda_collision: 15.5
 optimization/lambda_feasibility: 0.1
 optimization/lambda_fitness: 1.0
-optimization/dist0: 0.5
+optimization/dist0: 0.7
 optimization/swarm_clearance: 0.1
 optimization/max_vel: *max_vel
 optimization/max_acc_: *max_acc

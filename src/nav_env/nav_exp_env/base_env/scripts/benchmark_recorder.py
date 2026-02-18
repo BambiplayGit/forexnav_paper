@@ -174,6 +174,7 @@ class BenchmarkRecorder:
 
         # Round to 2 decimal places
         travel_time_r = round(travel_time, 2)
+        path_length_r = round(self.path_length, 2)
         avg_vel_r = round(avg_vel, 2)
         known_ratio_r = round(self.known_area_ratio, 2)
 
@@ -188,6 +189,7 @@ class BenchmarkRecorder:
         print(purple("  Start          : ({:.2f}, {:.2f})".format(sx, sy)))
         print(purple("  Goal           : ({:.2f}, {:.2f})".format(gx, gy)))
         print(purple("  Travel time    : {:.2f} s".format(travel_time_r)))
+        print(purple("  Path length    : {:.2f} m".format(path_length_r)))
         print(purple("  Length scale   : {}".format(length_scale_str)))
         print(purple("  Avg velocity   : {:.2f} m/s".format(avg_vel_r)))
         print(purple("  Known area     : {:.2f}".format(known_ratio_r)))
@@ -207,14 +209,14 @@ class BenchmarkRecorder:
             writer.writerow([
                 "algorithm", "map_name",
                 "start_x", "start_y", "goal_x", "goal_y",
-                "travel_time_s", "length_scale",
+                "travel_time_s", "path_length_m", "length_scale",
                 "avg_velocity_m_s", "known_area_ratio",
             ])
             writer.writerow([
                 self.algorithm, self.map_name,
                 round(sx, 2), round(sy, 2),
                 round(gx, 2), round(gy, 2),
-                travel_time_r, length_scale_str,
+                travel_time_r, path_length_r, length_scale_str,
                 avg_vel_r, known_ratio_r,
             ])
 

@@ -51,6 +51,9 @@ public:
   // Check if a point is in free space (not in obstacle) - uses occupancy grid
   bool isPointInFreeSpace(const Vector3d& pos);
   
+  // Check if a point collides with obstacles (inverse of isPointInFreeSpace) - uses inflated occupancy grid
+  bool checkPointCollision(const Vector3d& pos);
+  
   // Check if goal is reachable using occupancy grid (more reliable than A* with fallback)
   bool isGoalReachable(const Vector3d& start, const Vector3d& goal);
   
@@ -100,11 +103,15 @@ public:
   // Get last candidate paths for visualization (paths to top N viewpoints by cost)
   const std::vector<std::vector<Vector3d>>& getLastCandidatePaths() const;
 
+  // Get ranked viewpoint positions (sorted by mixed cost, best first) for viewpoint graph visualization
+  const std::vector<Vector3d>& getRankedViewpoints() const;
+
 private:
   NavParam nav_param_;
   std::shared_ptr<Astar2D> astar_2d_;
   std::shared_ptr<MincoWrapper> minco_wrapper_;
   std::vector<std::vector<Vector3d>> candidate_paths_;  // Paths to candidate viewpoints for vis
+  std::vector<Vector3d> ranked_viewpoints_;  // Viewpoint positions sorted by mixed cost (best first)
   
   bool use_inpaint_for_pred_;  // When false, skip A* for pred cost and set to 0 (no inpainted map)
   

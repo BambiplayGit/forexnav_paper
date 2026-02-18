@@ -214,13 +214,13 @@ Visualization Manager:
       Use rainbow: false
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /planning_vis/corridor_3d
       Name: MarkerArray
       Namespaces:
         {}
       Queue Size: 100
-      Value: false
+      Value: true
     - Class: rviz/Marker
       Enabled: false
       Marker Topic: /local_sensing/fov_marker

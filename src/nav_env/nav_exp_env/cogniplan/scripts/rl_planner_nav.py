@@ -38,6 +38,7 @@ import copy
 from PIL import Image
 import torchvision.transforms as transforms
 from skimage.measure import block_reduce
+from scipy.ndimage import binary_dilation
 
 from std_msgs.msg import Float32, Header
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
@@ -86,6 +87,8 @@ class RLPlannerNav:
         self.replan_freq = rospy.get_param('~replanning_frequency', 2.0)
         self.goal_reached_thr = rospy.get_param('~goal_reached_threshold', 0.5)
         self.publish_graph = rospy.get_param('~publish_graph', True)
+        self.obstacle_inflate_radius = rospy.get_param('~obstacle_inflate_radius', 0.3)
+        self._inflate_kernel = None
 
         model_path = rospy.get_param(
             '~model_path',
@@ -251,6 +254,26 @@ class RLPlannerNav:
         self.executing = False
         rospy.loginfo("Goal received: world=(%.2f, %.2f)  px256=(%.1f, %.1f)",
                       x, y, self.goal_pos_256[0], self.goal_pos_256[1])
+
+    # ===============================================================
+    # Obstacle inflation in 256-canvas
+    # ===============================================================
+    def _inflate_obstacles_256(self, belief):
+        """Dilate occupied cells (value==1) in a 256x256 belief map."""
+        if self.obstacle_inflate_radius <= 0:
+            return belief
+        if self._inflate_kernel is None:
+            px_per_m = CANVAS_SIZE / max(self.map_world_w, self.map_world_h)
+            r = max(1, int(round(self.obstacle_inflate_radius * px_per_m)))
+            y, x = np.ogrid[-r:r+1, -r:r+1]
+            self._inflate_kernel = (x * x + y * y <= r * r)
+            rospy.loginfo("CogniPlan obstacle inflate: %.2fm -> %d px",
+                          self.obstacle_inflate_radius, r)
+        occ_mask = (belief == 1)
+        inflated = binary_dilation(occ_mask, structure=self._inflate_kernel)
+        out = belief.copy()
+        out[inflated & (out != 1)] = 1
+        return out
 
     # ===============================================================
     # Frontier detection  (matches Env.find_frontier exactly)
@@ -477,8 +500,13 @@ class RLPlannerNav:
             if len(frontiers) == 0:
                 frontiers = np.array([[0, 0]])  # avoid empty-array issues
 
-            # ----- 2. GAN prediction -----
+            # ----- 2. GAN prediction (on raw belief) -----
             self._update_predict_map(belief)
+
+            # ----- 2.5 Inflate obstacles for graph construction -----
+            belief_inflated = self._inflate_obstacles_256(belief)
+            pred_max_inflated = self._inflate_obstacles_256(
+                self.pred_max_belief.astype(int)).astype(float)
 
             # ----- 3. Graph construction (original Graph_generator) -----
             gg = Graph_generator(
@@ -492,14 +520,14 @@ class RLPlannerNav:
             # cause IndexError in generate_graph's indicator lookup.
             gg.route_node = [robot_pos.copy()]
 
-            # generate_graph: belief as both ground_truth and robot_belief
-            gg.generate_graph(robot_pos, belief, belief, frontiers)
+            # generate_graph: use inflated belief so nodes stay away from walls
+            gg.generate_graph(robot_pos, belief_inflated, belief_inflated, frontiers)
 
-            # predict graph on GAN-predicted map
+            # predict graph on inflated GAN-predicted map
             (node_coords, graph_edges, node_utility,
              indicator, direction_vector,
              pred_prob, pred_signal) = gg.update_predict_graph(
-                robot_pos, self.pred_max_belief,
+                robot_pos, pred_max_inflated,
                 self.pred_mean_belief, frontiers)
 
             if len(node_coords) < 2:

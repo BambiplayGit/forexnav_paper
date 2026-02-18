@@ -109,13 +109,13 @@ class RRTxNode(object):
         self.sensing_radius = rospy.get_param("~sensing_radius", 5.0)
         self.max_samples = rospy.get_param("~max_samples", 8000)
         self.build_rate = rospy.get_param("~build_rate", 500)      # samples / sec during build
-        self.move_rate = rospy.get_param("~move_rate", 2.0)        # waypoint publish rate (Hz)
+        self.move_rate = rospy.get_param("~move_rate", 5.0)        # waypoint publish rate (Hz)
         self.goal_reach_thresh = rospy.get_param("~goal_reach_thresh", 0.5)
         self.delta = rospy.get_param("~delta", 0.0)
         self.obstacle_cost = rospy.get_param("~obstacle_cost", 1e6)
         self.robot_radius = rospy.get_param("~robot_radius", 0.3)  # inflation (m)
         self.goal_bias = rospy.get_param("~goal_bias", 0.15)       # goal-biased sampling ratio
-        self.online_samples = rospy.get_param("~online_samples", 30)  # new samples per move step
+        self.online_samples = rospy.get_param("~online_samples", 10)  # new samples per move step
         # Occupancy grid topic: use inflated grid to avoid paths too close to walls (recommended)
         self.occupancy_topic = rospy.get_param(
             "~occupancy_topic", "/local_sensing/occupancy_grid_inflate"
@@ -141,7 +141,8 @@ class RRTxNode(object):
         self.pub_path = rospy.Publisher("/planning/raw_path", Path, queue_size=1, latch=True)
         self.pub_tree = rospy.Publisher("/planning/rrtx_tree", Marker, queue_size=1, latch=True)
 
-        rospy.Subscriber(self.occupancy_topic, OccupancyGrid, self._cb_occ, queue_size=1)
+        rospy.Subscriber(self.occupancy_topic, OccupancyGrid, self._cb_occ,
+                         queue_size=1, buff_size=2**24)
         rospy.Subscriber("/odom", Odometry, self._cb_odom, queue_size=1)
         rospy.Subscriber("/move_base_simple/goal", PoseStamped, self._cb_goal, queue_size=1)
 
@@ -545,10 +546,10 @@ class RRTxNode(object):
     def _invalidate_path_ahead(self, curr_node):
         """Walk the entire parent chain from curr to goal.
         For every edge that NOW crosses an obstacle (based on latest occupancy grid),
-        inflate its weight and trigger replanning.
+        inflate its weight and collect orphan roots for subtree propagation.
         Returns True if any edge was invalidated."""
         tree = self.tree
-        invalidated = False
+        orphan_roots = set()
         node = curr_node
         visited = set()
 
@@ -561,14 +562,16 @@ class RRTxNode(object):
             if edge_key not in self.invalidated_edges:
                 if not self._is_edge_free(tree.pos[node], tree.pos[par]):
                     self._mark_edge_invalid(node, par)
-                    tree.cost[node] = np.inf
-                    self.queue.update(node, self._get_key(node))
-                    invalidated = True
+                    orphan_roots.add(node)
             node = par
 
-        if invalidated:
-            self._reduce_inconsistency_v2(curr_node)
-        return invalidated
+        if not orphan_roots:
+            return False
+
+        self._propagate_descendants(orphan_roots)
+        self.queue.update(curr_node, self._get_key(curr_node))
+        self._reduce_inconsistency_v2(curr_node)
+        return True
 
     # ---- helper: advance curr along the parent chain using odom ----
     def _advance_curr(self, curr):
@@ -606,14 +609,26 @@ class RRTxNode(object):
             if self._is_edge_known_free(self.tree.pos[curr], self.tree.pos[self.goal_idx]):
                 rospy.loginfo("[RRTx] Direct line to goal is clear, heading straight.")
                 self._publish_path_direct(curr)
-                # Wait for robot to actually reach goal
+                # Wait for robot to reach goal, but keep re-checking the
+                # direct line -- the occupancy grid may update mid-flight
+                # and reveal a wall that wasn't there before.
+                direct_ok = True
                 while not rospy.is_shutdown():
                     if self.robot_pos is not None:
                         d = np.linalg.norm(np.array(self.robot_pos) - self.tree.pos[self.goal_idx])
                         if d < self.goal_reach_thresh:
                             break
+                        if not self._is_edge_known_free(
+                                np.array(self.robot_pos),
+                                self.tree.pos[self.goal_idx]):
+                            rospy.logwarn("[RRTx] Direct line blocked, "
+                                         "returning to tree-based planning.")
+                            direct_ok = False
+                            break
                     rate.sleep()
-                break
+                if direct_ok:
+                    break
+                # Direct line was invalidated -- fall through to normal loop
 
             # 0) Online sampling: densify tree around current area & path ahead
             self._online_sample(curr)
@@ -716,9 +731,61 @@ class RRTxNode(object):
             pass
         return True
 
+    def _propagate_descendants(self, orphan_roots):
+        """Faithful port of MATLAB propogateDescendants() (line 288-323).
+
+        Given a set of orphan root nodes (nodes whose parent-edge was
+        just broken), BFS through the children sets to collect the
+        entire orphan subtree, then:
+          1. Queue *boundary* neighbours (adjacent to orphans but not in
+             the orphan set) so they can find new parents.
+          2. Fully orphan every node in the set: cost=Inf, rhs=Inf,
+             parent=-1.  This prevents stale rhs values from creating
+             circular parent chains.
+        """
+        tree = self.tree
+
+        # --- BFS to collect full orphan subtree ---
+        orphans = set(orphan_roots)
+        frontier = list(orphan_roots)
+        while frontier:
+            node = frontier.pop()
+            for child in tree.children[node]:
+                if child not in orphans:
+                    orphans.add(child)
+                    frontier.append(child)
+
+        # --- Boundary neighbours: adjacent to orphans but NOT orphans ---
+        boundary = set()
+        for node in orphans:
+            for nb in tree.neighbours[node]:
+                if nb not in orphans:
+                    boundary.add(nb)
+
+        # Queue boundary nodes -- they need to re-evaluate via updateRHS
+        for nb in boundary:
+            tree.cost[nb] = np.inf
+            self.queue.update(nb, self._get_key(nb))
+
+        # Complete orphan removal (matches MATLAB lines 310-321)
+        for node in orphans:
+            tree.cost[node] = np.inf
+            tree.rhs[node] = np.inf
+            old_parent = tree.parent[node]
+            if old_parent >= 0:
+                tree.children[old_parent].discard(node)
+            tree.parent[node] = -1
+
     def _sense_and_update(self, curr_node):
-        """Detect obstacles (nodes AND edges) within sensing radius, replan.
-        Returns True if any change was made."""
+        """Detect obstacles within sensing radius and replan.
+
+        Follows the MATLAB updateObstacles() pattern (line 250-263):
+          1. addNewObstacle  -- inflate edges, collect orphan roots
+          2. propogateDescendants -- orphan full subtrees
+          3. verifyQueue(curr) + reduceInconsistency_v2
+
+        Returns True if any change was made.
+        """
         if self.occ_data is None:
             return False
 
@@ -730,9 +797,9 @@ class RRTxNode(object):
         dists2 = np.sum((tree.pos[:tree.n] - np.array([cx, cy])) ** 2, axis=1)
         in_range = np.where(dists2 < sr2)[0]
 
-        changed = False
+        orphan_roots = set()
 
-        # --- Check 1: nodes sitting inside obstacles ---
+        # --- Check 1: nodes sitting inside obstacles (MATLAB addNewObstacle) ---
         new_obstacle_nodes = set()
         for idx in in_range:
             if idx in self.obstacle_nodes:
@@ -740,16 +807,12 @@ class RRTxNode(object):
             if self._node_in_obstacle(idx):
                 new_obstacle_nodes.add(idx)
 
-        # --- Handle new obstacle nodes ---
         for node in new_obstacle_nodes:
             self.obstacle_nodes.add(node)
             for j, nb in enumerate(tree.neighbours[node]):
-                if self._mark_edge_invalid(node, nb):
-                    changed = True
-                # If nb's parent is this obstacle node, nb needs a new parent
+                self._mark_edge_invalid(node, nb)
                 if tree.parent[nb] == node and nb not in self.obstacle_nodes:
-                    tree.cost[nb] = np.inf
-                    self.queue.update(nb, self._get_key(nb))
+                    orphan_roots.add(nb)
 
         # --- Check 2: edges that cross obstacles ---
         for idx in in_range:
@@ -764,22 +827,21 @@ class RRTxNode(object):
                         continue
                     if not self._is_edge_free(tree.pos[idx], tree.pos[nb]):
                         self._mark_edge_invalid(idx, nb)
-                        changed = True
-                        # Queue affected nodes for replanning
                         if tree.parent[idx] == nb:
-                            tree.cost[idx] = np.inf
-                            self.queue.update(idx, self._get_key(idx))
+                            orphan_roots.add(idx)
                         if tree.parent[nb] == idx:
-                            tree.cost[nb] = np.inf
-                            self.queue.update(nb, self._get_key(nb))
+                            orphan_roots.add(nb)
 
-        if not changed:
+        if not orphan_roots:
             return False
 
-        rospy.loginfo("[RRTx] Discovered %d new obstacle nodes, total invalidated edges: %d",
-                      len(new_obstacle_nodes), len(self.invalidated_edges))
+        rospy.loginfo("[RRTx] Discovered %d obstacle nodes, %d orphan roots, "
+                      "total invalidated edges: %d",
+                      len(new_obstacle_nodes), len(orphan_roots),
+                      len(self.invalidated_edges))
 
-        # Re-queue current node and reduce inconsistency
+        # MATLAB propogateDescendants + verifyQueue + reduceInconsistency_v2
+        self._propagate_descendants(orphan_roots)
         self.queue.update(curr_node, self._get_key(curr_node))
         self._reduce_inconsistency_v2(curr_node)
         return True

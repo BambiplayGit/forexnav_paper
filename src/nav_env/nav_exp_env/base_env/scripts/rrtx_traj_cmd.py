@@ -61,8 +61,10 @@ class RRTxTrajCmd(object):
 
         # --- Robot state ---
         self.robot_pos = None
+        self.robot_vel = np.zeros(2)
         self.robot_yaw = 0.0
         self.last_yaw = 0.0
+        self._yaw_initialized = False
 
         # --- ROS I/O ---
         self.pub_cmd = rospy.Publisher(
@@ -80,7 +82,12 @@ class RRTxTrajCmd(object):
     def _cb_odom(self, msg):
         self.robot_pos = np.array([msg.pose.pose.position.x,
                                    msg.pose.pose.position.y])
+        self.robot_vel = np.array([msg.twist.twist.linear.x,
+                                   msg.twist.twist.linear.y])
         self.robot_yaw = quat_to_yaw(msg.pose.pose.orientation)
+        if not self._yaw_initialized:
+            self.last_yaw = self.robot_yaw
+            self._yaw_initialized = True
 
     def _cb_path(self, msg):
         """Handle nav_msgs/Path from RRTX (/planning/raw_path)."""
@@ -184,8 +191,8 @@ class RRTxTrajCmd(object):
         dist_to_end = total_arc - s_closest
         dist_from_start = s_closest
 
-        # RRTX：轨迹最远端（已知范围内终点）速度强制为 0
-        if dist_to_end <= self.end_zone_arc or s_target >= total_arc - 1e-6:
+        # RRTX: end zone -- force speed to 0 at trajectory endpoint
+        if dist_to_end <= self.end_zone_arc:
             speed = 0.0
             a_tangential = 0.0
             px = float(cs_x(total_arc))
@@ -197,13 +204,14 @@ class RRTxTrajCmd(object):
                 if n_t > 1e-6:
                     tx, ty = dpx_ds / n_t, dpy_ds / n_t
         else:
+            v_cur = math.sqrt(self.robot_vel[0] ** 2 + self.robot_vel[1] ** 2)
+            v_acc = math.sqrt(max(v_cur ** 2 + 2.0 * self.max_acc * dist_from_start, 0.0))
             v_dec = math.sqrt(max(2.0 * self.max_acc * dist_to_end, 0.0))
-            v_acc = math.sqrt(max(2.0 * self.max_acc * dist_from_start, 0.0))
-            speed = min(self.max_vel, v_dec, v_acc)
+            speed = min(self.max_vel, v_acc, v_dec)
             speed = max(speed, 0.0)
             if dist_to_end < speed * speed / (2.0 * self.max_acc + 1e-6):
                 a_tangential = -self.max_acc
-            elif dist_from_start < speed * speed / (2.0 * self.max_acc + 1e-6):
+            elif v_cur < self.max_vel and dist_from_start < speed * speed / (2.0 * self.max_acc + 1e-6):
                 a_tangential = self.max_acc
             else:
                 a_tangential = 0.0
@@ -213,8 +221,8 @@ class RRTxTrajCmd(object):
         ax = tx * a_tangential
         ay = ty * a_tangential
 
-        if abs(vx) > 0.01 or abs(vy) > 0.01:
-            yaw = math.atan2(vy, vx)
+        if tangent_norm > 1e-6:
+            yaw = math.atan2(ty, tx)
             self.last_yaw = yaw
         else:
             yaw = self.last_yaw

@@ -26,6 +26,8 @@ catkin_install_python(PROGRAMS
   base_env/scripts/frtree_traj_cmd.py
   base_env/scripts/rrtx_traj_cmd.py
   base_env/scripts/benchmark_recorder.py
+  base_env/scripts/set_benchmark_points.py
+  base_env/scripts/preset_goal_sender.py
   cogniplan/scripts/rl_planner_nav.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

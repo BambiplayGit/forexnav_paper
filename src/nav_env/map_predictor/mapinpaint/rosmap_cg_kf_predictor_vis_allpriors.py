@@ -993,13 +993,17 @@ class InpaintNode:
         return np.vstack([row1, row2, stats_img, chart_img])
 
     def image_callback(self, msg):
+            # Throttle before expensive decode: avoid 30–60x image decode per second
+            now = rospy.get_time()
+            if not hasattr(self, '_last_t'):
+                self._last_t = 0
+            if now - self._last_t < 1.0:
+                return
+            self._last_t = now
+
             try:
                 cv_img_clean = self.imgmsg_to_cv2(msg)
-            except Exception: return
-            now = rospy.get_time()
-            if not hasattr(self, '_last_t'): self._last_t = 0
-            
-            if now - self._last_t < 0.5: # 0.5s = 2Hz
+            except Exception:
                 return
             # 1. Prepare Inputs
             cv_img_goal = cv_img_clean.copy()

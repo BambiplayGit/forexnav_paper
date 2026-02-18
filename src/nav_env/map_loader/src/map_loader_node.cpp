@@ -29,6 +29,10 @@ class MapLoaderNode {
     pnh.param<double>("trans_z", trans_z, 0.0);
     pnh.param<std::string>("frame_id", frame_id, "world");
 
+    // Display Z truncation: same height as local_sensing occupancy_3d (3D online mapping)
+    // occupancy_3d uses gl_zl_=-z_size/2, range [-z_size/2, z_size/2]
+    pnh.param<double>("display_z_size", display_z_size_, 5.0);
+
     ROS_INFO("Loading PCD: %s", pcd_path.c_str());
     ROS_INFO("Transform: RotZ=%.2f deg, Trans=[%.2f, %.2f, %.2f]",
               rotate_z, trans_x, trans_y, trans_z);
@@ -65,6 +69,22 @@ class MapLoaderNode {
       }
     }
 
+    // Truncate display to same Z range as occupancy_3d (3D online mapping): [-z_size/2, z_size/2]
+    if (display_z_size_ > 0) {
+      double z_min = -display_z_size_ / 2.0;
+      double z_max = display_z_size_ / 2.0;
+      size_t orig_count = cloud->points.size();
+      pcl::PointCloud<pcl::PointXYZ>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZ>);
+      for (const auto& pt : cloud->points) {
+        if (pt.z >= z_min && pt.z <= z_max) {
+          filtered->push_back(pt);
+        }
+      }
+      cloud = filtered;
+      ROS_INFO("Display Z truncated to [%.2f, %.2f]m (occupancy_3d height): %zu points (was %zu)",
+               z_min, z_max, cloud->points.size(), orig_count);
+    }
+
     // Convert to ROS message
     pcl::toROSMsg(*cloud, cloud_msg_);
     cloud_msg_.header.frame_id = frame_id;
@@ -84,6 +104,7 @@ class MapLoaderNode {
   ros::Publisher cloud_pub_;
   ros::Timer timer_;
   sensor_msgs::PointCloud2 cloud_msg_;
+  double display_z_size_{5.0};
 };
 
 int main(int argc, char** argv) {

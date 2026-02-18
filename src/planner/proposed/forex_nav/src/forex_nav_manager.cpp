@@ -226,6 +226,7 @@ int ForexNavManager::selectBestViewpoint(
     if (goal_in_view) {
       // Goal is reachable and in view, use it directly
       candidate_paths_.clear();
+      ranked_viewpoints_.clear();
       selected_pos = goal_pos;
       selected_yaw = std::atan2(goal_pos.y() - pos.y(), goal_pos.x() - pos.x());
       selected_v_limit = 0.0;  // Stop at goal
@@ -385,6 +386,12 @@ int ForexNavManager::selectBestViewpoint(
   std::sort(idx_cost.begin(), idx_cost.end(),
             [](const auto& a, const auto& b) { return a.second < b.second; });
 
+  // Store ranked viewpoint positions for viewpoint graph visualization
+  ranked_viewpoints_.clear();
+  for (const auto& ic : idx_cost) {
+    ranked_viewpoints_.push_back(viewpoints[ic.first].pos_);
+  }
+
   // Reuse cached A* paths for visualization (no redundant A* searches)
   candidate_paths_.clear();
   int n_vis = nav_param_.vis_candidate_path_count_;
@@ -453,6 +460,10 @@ bool ForexNavManager::isPointInFreeSpace(const Vector3d& pos) {
   // Use A*'s internal map check - check if occupancy value is 0 (free space)
   Eigen::Vector2i map_coord = astar_2d_->worldToMap(pos);
   return astar_2d_->isFree(map_coord.x(), map_coord.y());
+}
+
+bool ForexNavManager::checkPointCollision(const Vector3d& pos) {
+  return !isPointInFreeSpace(pos);
 }
 
 bool ForexNavManager::isGoalReachable(const Vector3d& /* start */, const Vector3d& goal) {
@@ -650,6 +661,10 @@ double ForexNavManager::calculateDistanceCost(const Vector3d& pos, const Vector3
 
 const std::vector<std::vector<Vector3d>>& ForexNavManager::getLastCandidatePaths() const {
   return candidate_paths_;
+}
+
+const std::vector<Vector3d>& ForexNavManager::getRankedViewpoints() const {
+  return ranked_viewpoints_;
 }
 
 std::vector<std::array<double, 6>> ForexNavManager::getLastCorridors() const {

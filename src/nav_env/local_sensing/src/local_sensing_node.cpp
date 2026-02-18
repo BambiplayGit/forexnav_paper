@@ -116,8 +116,6 @@ class LocalSensingNode {
     // 预计算膨胀半径对应的2D栅格格数 (两种模式通用)
     inflate_r_2d_ = (inflate_radius_ > 1e-6) ? (int)(inflate_radius_ / occ_res_ + 0.5) : 0;
 
-    // 膨胀地图发布频率节流 (大地图膨胀开销大，无需与感知同频)
-    inflate_publish_interval_ = 0.1;  // 10Hz, 远低于感知60Hz
     last_inflate_time_ = ros::Time(0);
 
     // ---- 订阅器 ----

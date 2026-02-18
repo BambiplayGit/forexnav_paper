@@ -1,0 +1,181 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- ╔══════════════════════════════════════════════════════════════════╗ -->
+    <!-- ║  交互式设置 benchmark 起点 / 终点                                ║ -->
+    <!-- ║  roslaunch nav_exp_env set_benchmark_points.launch              ║ -->
+    <!-- ║            map_name:=hkust1                                     ║ -->
+    <!-- ║                                                                  ║ -->
+    <!-- ║  1. 用 rviz "2D Pose Estimate" 设置起点 (init_x/y/yaw)          ║ -->
+    <!-- ║  2. 用 rviz "2D Nav Goal"      设置终点 (goal_x/y)              ║ -->
+    <!-- ║  3. 自动写入 benchmark.launch                                    ║ -->
+    <!-- ╚══════════════════════════════════════════════════════════════════╝ -->
+
+    <arg name="map_name" default="hkust1" />
+
+    <!-- ==================== Per-Map Configurations ==================== -->
+    <!-- (mirrors benchmark.launch so we can resolve pcd / transforms)    -->
+
+    <!-- office1 -->
+    <arg name="office1_box_min_x" value="-10.0"/>
+    <arg name="office1_box_min_y" value="-15.0"/>
+    <arg name="office1_box_max_x" value="10.0"/>
+    <arg name="office1_box_max_y" value="15.0"/>
+    <arg name="office1_rotate_z"  value="0.0"/>
+    <arg name="office1_trans_x"   value="0.0"/>
+    <arg name="office1_trans_y"   value="0.0"/>
+    <arg name="office1_pcd"       value="office.pcd"/>
+
+    <!-- office2 -->
+    <arg name="office2_box_min_x" value="-10.0"/>
+    <arg name="office2_box_min_y" value="-15.0"/>
+    <arg name="office2_box_max_x" value="10.0"/>
+    <arg name="office2_box_max_y" value="15.0"/>
+    <arg name="office2_rotate_z"  value="0.0"/>
+    <arg name="office2_trans_x"   value="0.0"/>
+    <arg name="office2_trans_y"   value="0.0"/>
+    <arg name="office2_pcd"       value="office2.pcd"/>
+
+    <!-- office3 -->
+    <arg name="office3_box_min_x" value="-10.0"/>
+    <arg name="office3_box_min_y" value="-15.0"/>
+    <arg name="office3_box_max_x" value="10.0"/>
+    <arg name="office3_box_max_y" value="15.0"/>
+    <arg name="office3_rotate_z"  value="0.0"/>
+    <arg name="office3_trans_x"   value="0.0"/>
+    <arg name="office3_trans_y"   value="0.0"/>
+    <arg name="office3_pcd"       value="office3.pcd"/>
+
+    <!-- complex_office -->
+    <arg name="complex_office_box_min_x" value="-17.0"/>
+    <arg name="complex_office_box_min_y" value="-17.0"/>
+    <arg name="complex_office_box_max_x" value="17.0"/>
+    <arg name="complex_office_box_max_y" value="17.0"/>
+    <arg name="complex_office_rotate_z"  value="0.0"/>
+    <arg name="complex_office_trans_x"   value="-15.0"/>
+    <arg name="complex_office_trans_y"   value="15.0"/>
+    <arg name="complex_office_pcd"       value="complex_office_rt.pcd"/>
+
+    <!-- maze_simple -->
+    <arg name="maze_simple_box_min_x" value="-10.0"/>
+    <arg name="maze_simple_box_min_y" value="-15.0"/>
+    <arg name="maze_simple_box_max_x" value="10.0"/>
+    <arg name="maze_simple_box_max_y" value="15.0"/>
+    <arg name="maze_simple_rotate_z"  value="0.0"/>
+    <arg name="maze_simple_trans_x"   value="0.0"/>
+    <arg name="maze_simple_trans_y"   value="0.0"/>
+    <arg name="maze_simple_pcd"       value="maze_simple.pcd"/>
+
+    <!-- maze -->
+    <arg name="maze_box_min_x" value="-17.5"/>
+    <arg name="maze_box_min_y" value="-17.5"/>
+    <arg name="maze_box_max_x" value="17.5"/>
+    <arg name="maze_box_max_y" value="17.5"/>
+    <arg name="maze_rotate_z"  value="0.0"/>
+    <arg name="maze_trans_x"   value="-17.5"/>
+    <arg name="maze_trans_y"   value="17.5"/>
+    <arg name="maze_pcd"       value="maze_rt.pcd"/>
+
+    <!-- tunnel1 -->
+    <arg name="tunnel1_box_min_x" value="-12.0"/>
+    <arg name="tunnel1_box_min_y" value="-22.0"/>
+    <arg name="tunnel1_box_max_x" value="12.0"/>
+    <arg name="tunnel1_box_max_y" value="22.0"/>
+    <arg name="tunnel1_rotate_z"  value="180.0"/>
+    <arg name="tunnel1_trans_x"   value="-7.0"/>
+    <arg name="tunnel1_trans_y"   value="0.0"/>
+    <arg name="tunnel1_pcd"       value="tunnel_cave_trans.pcd"/>
+
+    <!-- cmu -->
+    <arg name="cmu_box_min_x" value="-65.0"/>
+    <arg name="cmu_box_min_y" value="-50.0"/>
+    <arg name="cmu_box_max_x" value="65.0"/>
+    <arg name="cmu_box_max_y" value="50.0"/>
+    <arg name="cmu_rotate_z"  value="0.0"/>
+    <arg name="cmu_trans_x"   value="-65.0"/>
+    <arg name="cmu_trans_y"   value="-18.5"/>
+    <arg name="cmu_pcd"       value="indoor_cmu.pcd"/>
+
+    <!-- library -->
+    <arg name="library_box_min_x" value="-13.0"/>
+    <arg name="library_box_min_y" value="-20.0"/>
+    <arg name="library_box_max_x" value="14.0"/>
+    <arg name="library_box_max_y" value="20.0"/>
+    <arg name="library_rotate_z"  value="0.0"/>
+    <arg name="library_trans_x"   value="5.0"/>
+    <arg name="library_trans_y"   value="11.0"/>
+    <arg name="library_pcd"       value="LibraryLG2.pcd"/>
+
+    <!-- hkust1 -->
+    <arg name="hkust1_box_min_x" value="-25.0"/>
+    <arg name="hkust1_box_min_y" value="-33.0"/>
+    <arg name="hkust1_box_max_x" value="25.0"/>
+    <arg name="hkust1_box_max_y" value="33.0"/>
+    <arg name="hkust1_rotate_z"  value="0.0"/>
+    <arg name="hkust1_trans_x"   value="-102.0"/>
+    <arg name="hkust1_trans_y"   value="-11.0"/>
+    <arg name="hkust1_pcd"       value="hkust_1.pcd"/>
+
+    <!-- hkust2 -->
+    <arg name="hkust2_box_min_x" value="-25.0"/>
+    <arg name="hkust2_box_min_y" value="-33.0"/>
+    <arg name="hkust2_box_max_x" value="25.0"/>
+    <arg name="hkust2_box_max_y" value="33.0"/>
+    <arg name="hkust2_rotate_z"  value="0.0"/>
+    <arg name="hkust2_trans_x"   value="-172.0"/>
+    <arg name="hkust2_trans_y"   value="-11.0"/>
+    <arg name="hkust2_pcd"       value="hkust_2.pcd"/>
+
+    <!-- hkust3 -->
+    <arg name="hkust3_box_min_x" value="-25.0"/>
+    <arg name="hkust3_box_min_y" value="-33.0"/>
+    <arg name="hkust3_box_max_x" value="25.0"/>
+    <arg name="hkust3_box_max_y" value="33.0"/>
+    <arg name="hkust3_rotate_z"  value="0.0"/>
+    <arg name="hkust3_trans_x"   value="-172.0"/>
+    <arg name="hkust3_trans_y"   value="-11.0"/>
+    <arg name="hkust3_pcd"       value="hkust_3.pcd"/>
+
+    <!-- ==================== Resolve Map Parameters ==================== -->
+    <arg name="box_min_x" value="$(eval arg(arg('map_name') + '_box_min_x'))"/>
+    <arg name="box_min_y" value="$(eval arg(arg('map_name') + '_box_min_y'))"/>
+    <arg name="box_max_x" value="$(eval arg(arg('map_name') + '_box_max_x'))"/>
+    <arg name="box_max_y" value="$(eval arg(arg('map_name') + '_box_max_y'))"/>
+
+    <arg name="pcd_file" value="$(eval arg(arg('map_name') + '_pcd'))"/>
+    <arg name="rotate_z" value="$(eval arg(arg('map_name') + '_rotate_z'))"/>
+    <arg name="trans_x"  value="$(eval arg(arg('map_name') + '_trans_x'))"/>
+    <arg name="trans_y"  value="$(eval arg(arg('map_name') + '_trans_y'))"/>
+    <arg name="trans_z"  value="$(eval 3.0 if arg('map_name') == 'library' else -0.3)"/>
+
+    <arg name="map_x_size" value="$(eval arg('box_max_x') - arg('box_min_x') + 4.0)"/>
+    <arg name="map_y_size" value="$(eval arg('box_max_y') - arg('box_min_y') + 4.0)"/>
+    <arg name="map_z_size" default="5.0"/>
+
+    <!-- ==================== Map Loader ==================== -->
+    <node pkg="map_loader" type="map_loader_node" name="map_loader"
+          ns="map_loader" output="screen">
+        <param name="pcd_path" value="$(find map_loader)/resource/$(arg pcd_file)"/>
+        <param name="rotate_z" value="$(arg rotate_z)"/>
+        <param name="trans_x"  value="$(arg trans_x)"/>
+        <param name="trans_y"  value="$(arg trans_y)"/>
+        <param name="trans_z"  value="$(arg trans_z)"/>
+        <param name="frame_id" value="world"/>
+        <param name="display_z_size" value="$(arg map_z_size)"/>
+    </node>
+
+    <!-- Static TF: world -> odom -->
+    <node pkg="tf2_ros" type="static_transform_publisher"
+          name="world_to_odom_broadcaster"
+          args="0 0 0 0 0 0 world odom"/>
+
+    <!-- ==================== RViz ==================== -->
+    <node pkg="rviz" type="rviz" name="rviz_visualization" output="screen"
+          args="-d $(find nav_exp_env)/base_env/config/nav_env.rviz -f odom"/>
+
+    <!-- ==================== Point Selector Node ==================== -->
+    <node pkg="nav_exp_env" type="set_benchmark_points.py"
+          name="set_benchmark_points" output="screen">
+        <param name="map_name" value="$(arg map_name)"/>
+    </node>
+
+</launch>

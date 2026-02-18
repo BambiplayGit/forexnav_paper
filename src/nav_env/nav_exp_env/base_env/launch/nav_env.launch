@@ -32,8 +32,10 @@
   <!-- Example: 30x40m with 0.1m resolution = 300x400 pixels -->
   <arg name="map_x_size" default="30.0" />
   <arg name="map_y_size" default="40.0" />
+  <arg name="map_z_size" default="5.0" />
 
   <!-- Map loader node -->
+  <!-- global_cloud Z truncated to [-z_size/2, z_size/2], same as occupancy_3d (3D online mapping) -->
   <node pkg="map_loader" type="map_loader_node" name="map_loader" ns="map_loader" output="screen">
     <param name="pcd_path" value="$(find map_loader)/resource/$(arg pcd_file)" />
     <param name="rotate_z" value="$(arg rotate_z)" />
@@ -41,6 +43,7 @@
     <param name="trans_y" value="$(arg trans_y)" />
     <param name="trans_z" value="$(arg trans_z)" />
     <param name="frame_id" value="world" />
+    <param name="display_z_size" value="$(arg map_z_size)" />
   </node>
 
   <!-- Static TF: world to odom -->
@@ -81,6 +84,7 @@
     <rosparam file="$(find local_sensing)/params/local_sensing.yaml" command="load" />
     <param name="map/x_size" value="$(arg map_x_size)" />
     <param name="map/y_size" value="$(arg map_y_size)" />
+    <param name="map/z_size" value="$(arg map_z_size)" />
     <param name="map/resolution" value="0.1" />
     <param name="use_relative_cloud" value="true" />
     <param name="cloud_frame_id" value="base_link" />
@@ -88,11 +92,12 @@
     <remap from="odometry" to="/odom" />
   </node>
 
-  <!-- Odometry path publisher -->
+  <!-- Odometry path publisher (velocity trajectory: red=fast, yellow=slow) -->
   <node pkg="nav_exp_env" type="odom_path_publisher.py" name="odom_path_publisher" output="screen">
     <param name="max_path_length" value="2000" />
     <param name="publish_rate" value="10.0" />
     <param name="min_distance" value="0.05" />
+    <param name="line_width" value="0.4" /><!-- Marker thickness (m); increase for thicker trajectory -->
   </node>
 
   <!-- Static TF: world to navigation -->

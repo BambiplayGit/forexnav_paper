@@ -60,7 +60,7 @@
     
     <!-- MINCO trajectory optimization -->
     <param name="minco/weight_time" value="60.0" />
-    <param name="minco/weight_energy" value="0.5" />
+    <param name="minco/weight_energy" value="0.1" />
     <param name="minco/weight_pos" value="2000.0" />
     <param name="minco/weight_vel" value="100.0" />
     <param name="minco/weight_acc" value="80.0" />

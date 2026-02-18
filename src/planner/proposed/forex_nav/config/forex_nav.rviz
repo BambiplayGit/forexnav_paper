@@ -165,7 +165,6 @@ Visualization Manager:
       Namespaces:
         astar_path: true
         minco_trajectory: true
-        sfc_corridors: true
         trajectory: true
       Queue Size: 100
       Value: true

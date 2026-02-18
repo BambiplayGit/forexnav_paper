@@ -116,6 +116,9 @@ class OdomPathPublisher:
         # Line width
         marker.scale.x = self.line_width
         
+        # Lifetime (0 = never expires)
+        marker.lifetime = rospy.Duration(0)
+        
         # Pose (identity)
         marker.pose.orientation.w = 1.0
         

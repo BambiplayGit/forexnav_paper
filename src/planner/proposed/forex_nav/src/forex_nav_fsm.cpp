@@ -9,6 +9,7 @@ namespace forex_nav {
 ForexNavFSM::ForexNavFSM(ros::NodeHandle& nh, ros::NodeHandle& pnh) 
   : nh_(nh), pnh_(pnh), state_(INIT), traj_index_(0),
     minco_traj_duration_(0.0), minco_start_yaw_(0.0), minco_end_yaw_(0.0), has_minco_traj_(false),
+    collision_check_counter_(0),
     has_inpaint_map_(false) {
   
   fd_ = std::make_shared<FSMData>();
@@ -82,6 +83,7 @@ void ForexNavFSM::init() {
   vis_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning_vis/trajectory", 10);
   vis_3d_corridor_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning_vis/corridor_3d", 10);
   vis_fuzzy_astar_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning/fuzzyAstar", 10);
+  vis_viewpoint_graph_pub_ = nh_.advertise<visualization_msgs::MarkerArray>("/planning_vis/viewpoint_graph", 10);
   
   // Setup timers
   fsm_timer_ = nh_.createTimer(ros::Duration(0.1), &ForexNavFSM::FSMCallback, this);
@@ -276,6 +278,40 @@ void ForexNavFSM::execTrajCallback(const ros::TimerEvent&) {
       publishFinalPosition();
       transitState(FINISH, "execTrajCallback");
       return;
+    }
+    
+    // --- Look-ahead collision check (every 5 callbacks = ~20Hz at 100Hz exec rate) ---
+    collision_check_counter_++;
+    if (collision_check_counter_ >= 5 && has_minco_traj_ && elapsed < minco_traj_duration_) {
+      collision_check_counter_ = 0;
+      const double lookahead_start = 0.1;  // Start checking 0.1s ahead (skip immediate position)
+      const double lookahead_end = 1.0;    // Check up to 1.0s into future
+      const double lookahead_step = 0.1;   // Sample every 0.1s
+      
+      bool collision_detected = false;
+      double collision_time = 0.0;
+      Eigen::Vector3d collision_pos;
+      
+      for (double dt = lookahead_start; dt <= lookahead_end; dt += lookahead_step) {
+        double t_check = elapsed + dt;
+        if (t_check >= minco_traj_duration_) break;
+        
+        Eigen::Vector3d future_pos = minco_traj_obj_.getPos(t_check);
+        if (manager_->checkPointCollision(future_pos)) {
+          collision_detected = true;
+          collision_time = dt;
+          collision_pos = future_pos;
+          break;
+        }
+      }
+      
+      if (collision_detected) {
+        ROS_WARN("\033[31m[COLLISION] Look-ahead detected collision %.2fs ahead at (%.2f, %.2f), emergency replan!\033[0m",
+                  collision_time, collision_pos.x(), collision_pos.y());
+        last_replan_time_ = ros::Time::now();
+        transitState(PLAN_TRAJ, "collision_lookahead");
+        // Don't return — continue publishing old trajectory below (will be replaced after replan)
+      }
     }
     
     // Replan when reached current viewpoint/local goal (do not wait for full trajectory to finish)
@@ -718,85 +754,21 @@ void ForexNavFSM::visualize() {
     markers.markers.push_back(minco_marker);
   }
   
-  // Visualize SFC 2D corridors (green wireframe boxes, 12 edges)
-  for (size_t i = 0; i < corridors_.size(); ++i) {
-    const auto& corr = corridors_[i];
-    double x_min = corr[0], x_max = corr[1];
-    double y_min = corr[2], y_max = corr[3];
-    double z_min = corr[4], z_max = corr[5];
-    
-    visualization_msgs::Marker corridor_marker;
-    corridor_marker.header.frame_id = "world";
-    corridor_marker.header.stamp = ros::Time::now();
-    corridor_marker.ns = "sfc_corridors";
-    corridor_marker.id = static_cast<int>(i);
-    corridor_marker.type = visualization_msgs::Marker::LINE_LIST;
-    corridor_marker.action = visualization_msgs::Marker::ADD;
-    corridor_marker.pose.orientation.w = 1.0;
-    corridor_marker.scale.x = 0.05;
-    corridor_marker.color.r = 0.0;
-    corridor_marker.color.g = 1.0;
-    corridor_marker.color.b = 0.0;
-    corridor_marker.color.a = 0.8;
-    
-    // 8个顶点
-    geometry_msgs::Point p[8];
-    p[0].x = x_min; p[0].y = y_min; p[0].z = z_min;
-    p[1].x = x_max; p[1].y = y_min; p[1].z = z_min;
-    p[2].x = x_max; p[2].y = y_max; p[2].z = z_min;
-    p[3].x = x_min; p[3].y = y_max; p[3].z = z_min;
-    p[4].x = x_min; p[4].y = y_min; p[4].z = z_max;
-    p[5].x = x_max; p[5].y = y_min; p[5].z = z_max;
-    p[6].x = x_max; p[6].y = y_max; p[6].z = z_max;
-    p[7].x = x_min; p[7].y = y_max; p[7].z = z_max;
-    
-    // 底面4条边
-    corridor_marker.points.push_back(p[0]); corridor_marker.points.push_back(p[1]);
-    corridor_marker.points.push_back(p[1]); corridor_marker.points.push_back(p[2]);
-    corridor_marker.points.push_back(p[2]); corridor_marker.points.push_back(p[3]);
-    corridor_marker.points.push_back(p[3]); corridor_marker.points.push_back(p[0]);
-    // 顶面4条边
-    corridor_marker.points.push_back(p[4]); corridor_marker.points.push_back(p[5]);
-    corridor_marker.points.push_back(p[5]); corridor_marker.points.push_back(p[6]);
-    corridor_marker.points.push_back(p[6]); corridor_marker.points.push_back(p[7]);
-    corridor_marker.points.push_back(p[7]); corridor_marker.points.push_back(p[4]);
-    // 竖直4条边
-    corridor_marker.points.push_back(p[0]); corridor_marker.points.push_back(p[4]);
-    corridor_marker.points.push_back(p[1]); corridor_marker.points.push_back(p[5]);
-    corridor_marker.points.push_back(p[2]); corridor_marker.points.push_back(p[6]);
-    corridor_marker.points.push_back(p[3]); corridor_marker.points.push_back(p[7]);
-    
-    markers.markers.push_back(corridor_marker);
-  }
-  
-  // Publish 3D SFC corridors on separate topic (cyan wireframe boxes, 12 edges)
+  // Publish SFC corridors on separate topic (wireframe edges + semi-transparent faces)
+  // Use the MINCO 2D corridors (wider, fewer after merge) rather than dense 3D corridors
   {
     visualization_msgs::MarkerArray markers_3d;
-    
+
     visualization_msgs::Marker del;
     del.action = visualization_msgs::Marker::DELETEALL;
     markers_3d.markers.push_back(del);
-    
-    for (size_t i = 0; i < corridors_3d_.size(); ++i) {
-      const auto& corr = corridors_3d_[i];
+
+    for (size_t i = 0; i < corridors_.size(); ++i) {
+      const auto& corr = corridors_[i];
       double x_min = corr[0], x_max = corr[1];
       double y_min = corr[2], y_max = corr[3];
       double z_min = corr[4], z_max = corr[5];
-      
-      visualization_msgs::Marker m;
-      m.header.frame_id = "world";
-      m.header.stamp = ros::Time::now();
-      m.ns = "sfc_corridors_3d";
-      m.id = static_cast<int>(i);
-      m.type = visualization_msgs::Marker::LINE_LIST;
-      m.action = visualization_msgs::Marker::ADD;
-      m.pose.orientation.w = 1.0;
-      m.scale.x = 0.06;
-      m.color.r = 0.0;
-      m.color.g = 0.8;
-      m.color.b = 1.0;
-      m.color.a = 0.7;
-      
+
       geometry_msgs::Point p[8];
       p[0].x = x_min; p[0].y = y_min; p[0].z = z_min;
       p[1].x = x_max; p[1].y = y_min; p[1].z = z_min;
@@ -806,26 +778,68 @@ void ForexNavFSM::visualize() {
       p[5].x = x_max; p[5].y = y_min; p[5].z = z_max;
       p[6].x = x_max; p[6].y = y_max; p[6].z = z_max;
       p[7].x = x_min; p[7].y = y_max; p[7].z = z_max;
-      
-      // 底面
-      m.points.push_back(p[0]); m.points.push_back(p[1]);
-      m.points.push_back(p[1]); m.points.push_back(p[2]);
-      m.points.push_back(p[2]); m.points.push_back(p[3]);
-      m.points.push_back(p[3]); m.points.push_back(p[0]);
-      // 顶面
-      m.points.push_back(p[4]); m.points.push_back(p[5]);
-      m.points.push_back(p[5]); m.points.push_back(p[6]);
-      m.points.push_back(p[6]); m.points.push_back(p[7]);
-      m.points.push_back(p[7]); m.points.push_back(p[4]);
-      // 竖直
-      m.points.push_back(p[0]); m.points.push_back(p[4]);
-      m.points.push_back(p[1]); m.points.push_back(p[5]);
-      m.points.push_back(p[2]); m.points.push_back(p[6]);
-      m.points.push_back(p[3]); m.points.push_back(p[7]);
-      
-      markers_3d.markers.push_back(m);
+
+      // --- Wireframe edges (LINE_LIST) ---
+      visualization_msgs::Marker edge;
+      edge.header.frame_id = "world";
+      edge.header.stamp = ros::Time::now();
+      edge.ns = "sfc_edges";
+      edge.id = static_cast<int>(i);
+      edge.type = visualization_msgs::Marker::LINE_LIST;
+      edge.action = visualization_msgs::Marker::ADD;
+      edge.pose.orientation.w = 1.0;
+      edge.scale.x = 0.05;
+      edge.color.r = 0.2; edge.color.g = 1.0; edge.color.b = 0.6; edge.color.a = 0.9;
+      // Bottom 4 edges
+      edge.points.push_back(p[0]); edge.points.push_back(p[1]);
+      edge.points.push_back(p[1]); edge.points.push_back(p[2]);
+      edge.points.push_back(p[2]); edge.points.push_back(p[3]);
+      edge.points.push_back(p[3]); edge.points.push_back(p[0]);
+      // Top 4 edges
+      edge.points.push_back(p[4]); edge.points.push_back(p[5]);
+      edge.points.push_back(p[5]); edge.points.push_back(p[6]);
+      edge.points.push_back(p[6]); edge.points.push_back(p[7]);
+      edge.points.push_back(p[7]); edge.points.push_back(p[4]);
+      // Vertical 4 edges
+      edge.points.push_back(p[0]); edge.points.push_back(p[4]);
+      edge.points.push_back(p[1]); edge.points.push_back(p[5]);
+      edge.points.push_back(p[2]); edge.points.push_back(p[6]);
+      edge.points.push_back(p[3]); edge.points.push_back(p[7]);
+      markers_3d.markers.push_back(edge);
+
+      // --- Semi-transparent faces (TRIANGLE_LIST) ---
+      visualization_msgs::Marker face;
+      face.header.frame_id = "world";
+      face.header.stamp = ros::Time::now();
+      face.ns = "sfc_faces";
+      face.id = static_cast<int>(i);
+      face.type = visualization_msgs::Marker::TRIANGLE_LIST;
+      face.action = visualization_msgs::Marker::ADD;
+      face.pose.orientation.w = 1.0;
+      face.scale.x = 1.0; face.scale.y = 1.0; face.scale.z = 1.0;
+      face.color.r = 0.3; face.color.g = 1.0; face.color.b = 0.7; face.color.a = 0.08;
+      // 6 faces, 2 triangles each = 12 triangles = 36 vertices
+      // Bottom face (z_min): 0-1-2, 0-2-3
+      face.points.push_back(p[0]); face.points.push_back(p[1]); face.points.push_back(p[2]);
+      face.points.push_back(p[0]); face.points.push_back(p[2]); face.points.push_back(p[3]);
+      // Top face (z_max): 4-6-5, 4-7-6
+      face.points.push_back(p[4]); face.points.push_back(p[6]); face.points.push_back(p[5]);
+      face.points.push_back(p[4]); face.points.push_back(p[7]); face.points.push_back(p[6]);
+      // Front face (y_min): 0-1-5, 0-5-4
+      face.points.push_back(p[0]); face.points.push_back(p[1]); face.points.push_back(p[5]);
+      face.points.push_back(p[0]); face.points.push_back(p[5]); face.points.push_back(p[4]);
+      // Back face (y_max): 3-6-2, 3-7-6
+      face.points.push_back(p[3]); face.points.push_back(p[6]); face.points.push_back(p[2]);
+      face.points.push_back(p[3]); face.points.push_back(p[7]); face.points.push_back(p[6]);
+      // Left face (x_min): 0-7-3, 0-4-7
+      face.points.push_back(p[0]); face.points.push_back(p[7]); face.points.push_back(p[3]);
+      face.points.push_back(p[0]); face.points.push_back(p[4]); face.points.push_back(p[7]);
+      // Right face (x_max): 1-2-6, 1-6-5
+      face.points.push_back(p[1]); face.points.push_back(p[2]); face.points.push_back(p[6]);
+      face.points.push_back(p[1]); face.points.push_back(p[6]); face.points.push_back(p[5]);
+      markers_3d.markers.push_back(face);
     }
-    
+
     vis_3d_corridor_pub_.publish(markers_3d);
   }
   
@@ -863,6 +877,108 @@ void ForexNavFSM::visualize() {
       fuzzy_markers.markers.push_back(line_marker);
     }
     vis_fuzzy_astar_pub_.publish(fuzzy_markers);
+  }
+
+  // Viewpoint graph visualization: top3 pink, others (4-8) light gray
+  {
+    visualization_msgs::MarkerArray vg_markers;
+    visualization_msgs::Marker del_vg;
+    del_vg.action = visualization_msgs::Marker::DELETEALL;
+    vg_markers.markers.push_back(del_vg);
+
+    const auto& ranked_vps = manager_->getRankedViewpoints();
+    int n_show = std::min(8, static_cast<int>(ranked_vps.size()));
+
+    if (n_show > 0 && fd_->have_odom_ && fd_->have_goal_) {
+      // Viewpoint spheres
+      for (int i = 0; i < n_show; ++i) {
+        visualization_msgs::Marker sphere;
+        sphere.header.frame_id = "world";
+        sphere.header.stamp = ros::Time::now();
+        sphere.ns = "vg_nodes";
+        sphere.id = i;
+        sphere.type = visualization_msgs::Marker::SPHERE;
+        sphere.action = visualization_msgs::Marker::ADD;
+        sphere.pose.position.x = ranked_vps[i].x();
+        sphere.pose.position.y = ranked_vps[i].y();
+        sphere.pose.position.z = ranked_vps[i].z();
+        sphere.pose.orientation.w = 1.0;
+        sphere.scale.x = 0.3;
+        sphere.scale.y = 0.3;
+        sphere.scale.z = 0.3;
+        if (i < 3) {
+          // Pink
+          sphere.color.r = 1.0f; sphere.color.g = 0.4f; sphere.color.b = 0.7f; sphere.color.a = 1.0f;
+        } else {
+          // Light gray
+          sphere.color.r = 0.75f; sphere.color.g = 0.75f; sphere.color.b = 0.75f; sphere.color.a = 1.0f;
+        }
+        vg_markers.markers.push_back(sphere);
+      }
+
+      // Connection lines: odom <-> viewpoint <-> goal
+      // Top 3: pink thick lines
+      visualization_msgs::Marker top3_lines;
+      top3_lines.header.frame_id = "world";
+      top3_lines.header.stamp = ros::Time::now();
+      top3_lines.ns = "vg_top3_edges";
+      top3_lines.id = 0;
+      top3_lines.type = visualization_msgs::Marker::LINE_LIST;
+      top3_lines.action = visualization_msgs::Marker::ADD;
+      top3_lines.pose.orientation.w = 1.0;
+      top3_lines.scale.x = 0.08;
+      top3_lines.color.r = 1.0f; top3_lines.color.g = 0.4f;
+      top3_lines.color.b = 0.7f; top3_lines.color.a = 1.0f;
+
+      // Others (4-8): light gray thin lines
+      visualization_msgs::Marker other_lines;
+      other_lines.header.frame_id = "world";
+      other_lines.header.stamp = ros::Time::now();
+      other_lines.ns = "vg_other_edges";
+      other_lines.id = 0;
+      other_lines.type = visualization_msgs::Marker::LINE_LIST;
+      other_lines.action = visualization_msgs::Marker::ADD;
+      other_lines.pose.orientation.w = 1.0;
+      other_lines.scale.x = 0.03;
+      other_lines.color.r = 0.75f; other_lines.color.g = 0.75f;
+      other_lines.color.b = 0.75f; other_lines.color.a = 1.0f;
+
+      for (int i = 0; i < n_show; ++i) {
+        geometry_msgs::Point p_odom, p_vp, p_goal;
+        p_odom.x = fd_->odom_pos_.x();
+        p_odom.y = fd_->odom_pos_.y();
+        p_odom.z = fd_->odom_pos_.z();
+        p_vp.x = ranked_vps[i].x();
+        p_vp.y = ranked_vps[i].y();
+        p_vp.z = ranked_vps[i].z();
+        p_goal.x = fd_->goal_pos_.x();
+        p_goal.y = fd_->goal_pos_.y();
+        p_goal.z = fd_->goal_pos_.z();
+
+        if (i < 3) {
+          // odom -> viewpoint
+          top3_lines.points.push_back(p_odom);
+          top3_lines.points.push_back(p_vp);
+          // goal -> viewpoint
+          top3_lines.points.push_back(p_goal);
+          top3_lines.points.push_back(p_vp);
+        } else {
+          // odom -> viewpoint
+          other_lines.points.push_back(p_odom);
+          other_lines.points.push_back(p_vp);
+          // goal -> viewpoint
+          other_lines.points.push_back(p_goal);
+          other_lines.points.push_back(p_vp);
+        }
+      }
+
+      if (!top3_lines.points.empty())
+        vg_markers.markers.push_back(top3_lines);
+      if (!other_lines.points.empty())
+        vg_markers.markers.push_back(other_lines);
+    }
+
+    vis_viewpoint_graph_pub_.publish(vg_markers);
   }
   
   // Draw trajectory

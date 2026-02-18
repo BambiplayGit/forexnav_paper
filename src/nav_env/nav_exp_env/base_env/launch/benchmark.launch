@@ -7,7 +7,7 @@
     <!-- ║        maze_simple  maze  tunnel1  cmu                  ║ -->
     <!-- ║        library  hkust1  hkust2  hkust3                  ║ -->
     <!-- ╚══════════════════════════════════════════════════════════╝ -->
-    <arg name="algorithm" default="forex_nav" />
+    <arg name="algorithm" default="rrtx" />
     <arg name="map_name"  default="hkust1"   />
 
     <!-- ==================== 其他全局参数 ==================== -->
@@ -24,6 +24,8 @@
     <arg name="office1_init_x"    value="-6"/>
     <arg name="office1_init_y"    value="10"/>
     <arg name="office1_init_yaw"  value="-1.57"/>
+    <arg name="office1_goal_x"   value="5.20"/>
+    <arg name="office1_goal_y"   value="-9.32"/>
     <arg name="office1_box_min_x" value="-10.0"/>
     <arg name="office1_box_min_y" value="-15.0"/>
     <arg name="office1_box_max_x" value="10.0"/>
@@ -38,6 +40,8 @@
     <arg name="office2_init_x"    value="8.5"/>
     <arg name="office2_init_y"    value="-8.5"/>
     <arg name="office2_init_yaw"  value="2.1"/>
+    <arg name="office2_goal_x"   value="0.00"/>
+    <arg name="office2_goal_y"   value="0.00"/>
     <arg name="office2_box_min_x" value="-10.0"/>
     <arg name="office2_box_min_y" value="-15.0"/>
     <arg name="office2_box_max_x" value="10.0"/>
@@ -52,6 +56,8 @@
     <arg name="office3_init_x"    value="8.5"/>
     <arg name="office3_init_y"    value="-12.5"/>
     <arg name="office3_init_yaw"  value="2.1"/>
+    <arg name="office3_goal_x"   value="0.00"/>
+    <arg name="office3_goal_y"   value="0.00"/>
     <arg name="office3_box_min_x" value="-10.0"/>
     <arg name="office3_box_min_y" value="-15.0"/>
     <arg name="office3_box_max_x" value="10.0"/>
@@ -66,6 +72,8 @@
     <arg name="complex_office_init_x"    value="14.0"/>
     <arg name="complex_office_init_y"    value="13.0"/>
     <arg name="complex_office_init_yaw"  value="3.14"/>
+    <arg name="complex_office_goal_x"   value="0.00"/>
+    <arg name="complex_office_goal_y"   value="0.00"/>
     <arg name="complex_office_box_min_x" value="-17.0"/>
     <arg name="complex_office_box_min_y" value="-17.0"/>
     <arg name="complex_office_box_max_x" value="17.0"/>
@@ -80,6 +88,8 @@
     <arg name="maze_simple_init_x"    value="8.3"/>
     <arg name="maze_simple_init_y"    value="-19"/>
     <arg name="maze_simple_init_yaw"  value="2.1"/>
+    <arg name="maze_simple_goal_x"   value="0.00"/>
+    <arg name="maze_simple_goal_y"   value="0.00"/>
     <arg name="maze_simple_box_min_x" value="-10.0"/>
     <arg name="maze_simple_box_min_y" value="-15.0"/>
     <arg name="maze_simple_box_max_x" value="10.0"/>
@@ -93,6 +103,8 @@
     <arg name="maze_init_x"    value="14"/>
     <arg name="maze_init_y"    value="13.75"/>
     <arg name="maze_init_yaw"  value="3.14"/>
+    <arg name="maze_goal_x"   value="0.00"/>
+    <arg name="maze_goal_y"   value="0.00"/>
     <arg name="maze_box_min_x" value="-17.5"/>
     <arg name="maze_box_min_y" value="-17.5"/>
     <arg name="maze_box_max_x" value="17.5"/>
@@ -107,6 +119,8 @@
     <arg name="tunnel1_init_x"    value="4.0"/>
     <arg name="tunnel1_init_y"    value="-18.5"/>
     <arg name="tunnel1_init_yaw"  value="1.57"/>
+    <arg name="tunnel1_goal_x"   value="0.00"/>
+    <arg name="tunnel1_goal_y"   value="0.00"/>
     <arg name="tunnel1_box_min_x" value="-12.0"/>
     <arg name="tunnel1_box_min_y" value="-22.0"/>
     <arg name="tunnel1_box_max_x" value="12.0"/>
@@ -121,6 +135,8 @@
     <arg name="cmu_init_x"    value="-22.4"/>
     <arg name="cmu_init_y"    value="-41.8"/>
     <arg name="cmu_init_yaw"  value="1.57"/>
+    <arg name="cmu_goal_x"   value="0.00"/>
+    <arg name="cmu_goal_y"   value="0.00"/>
     <arg name="cmu_box_min_x" value="-65.0"/>
     <arg name="cmu_box_min_y" value="-50.0"/>
     <arg name="cmu_box_max_x" value="65.0"/>
@@ -134,6 +150,8 @@
     <arg name="library_init_x"    value="9.8"/>
     <arg name="library_init_y"    value="13.6"/>
     <arg name="library_init_yaw"  value="3.14"/>
+    <arg name="library_goal_x"   value="0.00"/>
+    <arg name="library_goal_y"   value="0.00"/>
     <arg name="library_box_min_x" value="-13.0"/>
     <arg name="library_box_min_y" value="-20.0"/>
     <arg name="library_box_max_x" value="14.0"/>
@@ -145,9 +163,11 @@
 
     <!-- hkust1 -->
     <!-- MAP_TRAJECTORIES[hkust1]="-8 -26.2 -1.2 30 18.5 -25.2 20.1 25" -->
-    <arg name="hkust1_init_x"    value="17.6"/>
-    <arg name="hkust1_init_y"    value="26.39"/>
-    <arg name="hkust1_init_yaw"  value="-1.57"/>
+    <arg name="hkust1_init_x"    value="16.54"/>
+    <arg name="hkust1_init_y"    value="25.52"/>
+    <arg name="hkust1_init_yaw"  value="0.00"/>
+    <arg name="hkust1_goal_x"   value="-3.44"/>
+    <arg name="hkust1_goal_y"   value="-30.31"/>
     <arg name="hkust1_box_min_x" value="-25.0"/>
     <arg name="hkust1_box_min_y" value="-33.0"/>
     <arg name="hkust1_box_max_x" value="25.0"/>
@@ -162,6 +182,8 @@
     <arg name="hkust2_init_x"    value="7.3"/>
     <arg name="hkust2_init_y"    value="-27.6"/>
     <arg name="hkust2_init_yaw"  value="1.57"/>
+    <arg name="hkust2_goal_x"   value="0.00"/>
+    <arg name="hkust2_goal_y"   value="0.00"/>
     <arg name="hkust2_box_min_x" value="-25.0"/>
     <arg name="hkust2_box_min_y" value="-33.0"/>
     <arg name="hkust2_box_max_x" value="25.0"/>
@@ -175,6 +197,8 @@
     <arg name="hkust3_init_x"    value="-1.0"/>
     <arg name="hkust3_init_y"    value="12.0"/>
     <arg name="hkust3_init_yaw"  value="0.0"/>
+    <arg name="hkust3_goal_x"   value="0.00"/>
+    <arg name="hkust3_goal_y"   value="0.00"/>
     <arg name="hkust3_box_min_x" value="-25.0"/>
     <arg name="hkust3_box_min_y" value="-33.0"/>
     <arg name="hkust3_box_max_x" value="25.0"/>
@@ -189,6 +213,10 @@
     <arg name="init_x"   default="$(eval arg(arg('map_name') + '_init_x'))"/>
     <arg name="init_y"   default="$(eval arg(arg('map_name') + '_init_y'))"/>
     <arg name="init_yaw" default="$(eval arg(arg('map_name') + '_init_yaw'))"/>
+
+    <!-- Preset goal (resolved from map_name; set via set_benchmark_points.launch) -->
+    <arg name="goal_x" default="$(eval arg(arg('map_name') + '_goal_x'))"/>
+    <arg name="goal_y" default="$(eval arg(arg('map_name') + '_goal_y'))"/>
 
     <!-- Box bounds (resolved from map_name) -->
     <arg name="box_min_x" value="$(eval arg(arg('map_name') + '_box_min_x'))"/>
@@ -286,6 +314,17 @@
         <arg name="trans_y" value="$(arg trans_y)" />
         <arg name="trans_z" value="$(arg trans_z)" />
     </include>
+
+    <!-- ==================== Preset Goal Sender ==================== -->
+    <!-- Click "Publish Point" in rviz to send preset goal to /move_base_simple/goal -->
+    <!-- "2D Nav Goal" still works independently (different rviz tool, same topic) -->
+    <arg name="use_preset_goal" default="true" />
+    <node pkg="nav_exp_env" type="preset_goal_sender.py" name="preset_goal_sender" output="screen"
+          if="$(arg use_preset_goal)">
+        <param name="goal_x" value="$(arg goal_x)" />
+        <param name="goal_y" value="$(arg goal_y)" />
+        <param name="planning_height" value="$(arg planning_height)" />
+    </node>
 
     <!-- ==================== Benchmark Metrics Recorder ==================== -->
     <node pkg="nav_exp_env" type="benchmark_recorder.py" name="benchmark_recorder" output="screen">

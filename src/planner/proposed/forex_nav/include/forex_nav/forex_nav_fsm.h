@@ -85,6 +85,9 @@ private:
   double minco_end_yaw_;
   bool has_minco_traj_;
   
+  // Look-ahead collision check counter (runs every N exec callbacks to limit CPU)
+  int collision_check_counter_;
+  
   // Path data for visualization
   std::vector<Eigen::Vector3d> astar_path_;  // A* path (yellow)
   std::vector<Eigen::Vector3d> minco_traj_;  // MINCO trajectory (red)
@@ -106,6 +109,7 @@ private:
   ros::Publisher vis_pub_;
   ros::Publisher vis_3d_corridor_pub_;
   ros::Publisher vis_fuzzy_astar_pub_;
+  ros::Publisher vis_viewpoint_graph_pub_;
   
   ros::Timer fsm_timer_;
   ros::Timer exec_timer_;
