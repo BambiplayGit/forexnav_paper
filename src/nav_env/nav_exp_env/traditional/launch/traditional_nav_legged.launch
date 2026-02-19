@@ -41,7 +41,7 @@
     <param name="replan_rate" value="5.0" />
     <param name="goal_reach_thresh" value="0.4" />
     <param name="obstacle_thresh" value="50" />
-    <param name="w_heuristic" value="2.0" />
+    <param name="w_heuristic" value="1" />
     <param name="cost_near_obs" value="3.0" />
     <param name="obs_cost_radius" value="5" />
     <param name="use_4connected" value="true" />
@@ -60,6 +60,8 @@
     <param name="acc_ratio" value="0.5" />
     <param name="lat_acc_ratio" value="0.3" />
     <param name="vel_smooth_window" value="0.4" />
+    <param name="naive_local_goal" value="false" />
+    <param name="planning_horizon" value="200.0" />
   </node>
 
   <!-- ============== RViz (legged visualization) ============== -->

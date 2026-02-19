@@ -56,7 +56,7 @@
     <param name="nav/traj_dt" value="0.02" />
     <param name="nav/vis_candidate_path_count" value="3"/>
     <param name="nav/planning_height" value="$(arg planning_height)" />
-    <param name="nav/local_goal_max_dist" value="9.0" />
+    <param name="nav/local_goal_max_dist" value="8.0" />
     
     <!-- MINCO trajectory optimization -->
     <param name="minco/weight_time" value="60.0" />

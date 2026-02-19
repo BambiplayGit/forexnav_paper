@@ -18,6 +18,7 @@ Publishes:
 """
 
 import math
+import time
 import heapq
 import numpy as np
 import rospy
@@ -430,6 +431,43 @@ class RRTxNode(object):
     # ===================================================================
     # Build phase
     # ===================================================================
+    def _compute_free_space_stats(self):
+        """Compute free-space ratio and effective corridor width from the
+        current occupancy grid using distance transform."""
+        if self.occ_data is None:
+            return {}
+        from scipy.ndimage import distance_transform_edt
+        occupied = (self.occ_data > 50).astype(np.uint8)
+        h, w = occupied.shape
+        total = h * w
+        n_occ = int(np.sum(occupied))
+        n_free = total - n_occ
+
+        dist_map = distance_transform_edt(1 - occupied)
+        free_dists = dist_map[occupied == 0]
+        if len(free_dists) == 0:
+            return {"total_cells": total, "free_cells": 0, "free_ratio": 0.0}
+
+        res = self.occ_res if self.occ_res else 0.1
+        free_dists_m = free_dists * res
+
+        narrow_thresh_m = self.epsilon * 0.5
+        n_narrow = int(np.sum(free_dists_m < narrow_thresh_m))
+
+        return {
+            "total_cells": total,
+            "free_cells": int(n_free),
+            "free_ratio": n_free / max(total, 1),
+            "grid_w": w, "grid_h": h,
+            "dist_min_m": float(np.min(free_dists_m)),
+            "dist_median_m": float(np.median(free_dists_m)),
+            "dist_mean_m": float(np.mean(free_dists_m)),
+            "dist_p10_m": float(np.percentile(free_dists_m, 10)),
+            "dist_p25_m": float(np.percentile(free_dists_m, 25)),
+            "narrow_cells": n_narrow,
+            "narrow_ratio": n_narrow / max(n_free, 1),
+        }
+
     def _start_planning(self):
         if self.robot_pos is None:
             rospy.logwarn("[RRTx] No odom yet, cannot plan.")
@@ -437,6 +475,8 @@ class RRTxNode(object):
         if self.occ_data is None:
             rospy.logwarn("[RRTx] No occupancy grid yet, cannot plan.")
             return
+
+        t_build_start = time.time()
 
         # Reset tree
         self.tree = RRTxTree(self.max_samples)
@@ -456,46 +496,85 @@ class RRTxNode(object):
                       self.goal_pos[0], self.goal_pos[1],
                       self.robot_pos[0], self.robot_pos[1])
 
+        fs = self._compute_free_space_stats()
+        if fs:
+            rospy.loginfo(
+                "[RRTx-BENCH] Map: %dx%d (%d cells) | free=%d (%.1f%%) | "
+                "dist_to_wall: median=%.2fm p10=%.2fm p25=%.2fm | "
+                "narrow(<%.1fm): %d cells (%.1f%% of free)",
+                fs.get("grid_w", 0), fs.get("grid_h", 0),
+                fs.get("total_cells", 0),
+                fs.get("free_cells", 0), fs.get("free_ratio", 0) * 100,
+                fs.get("dist_median_m", 0), fs.get("dist_p10_m", 0),
+                fs.get("dist_p25_m", 0),
+                self.epsilon * 0.5,
+                fs.get("narrow_cells", 0), fs.get("narrow_ratio", 0) * 100)
+
         rate = rospy.Rate(self.build_rate)
         goal_arr = np.array(self.goal_pos)
         start_arr = np.array(self.robot_pos)
-        # Distance between start and goal, used to set goal bias radius
         sg_dist = np.linalg.norm(goal_arr - start_arr)
         bias_radius = max(sg_dist * 0.3, self.ball_radius * 3)
 
         attempt_start_every = 50
         i = 0
-        build_limit = int(self.max_samples * 0.75)  # reserve 25% capacity for online sampling
+        n_rejected_occ = 0
+        n_rejected_close = 0
+        n_rejected_edge = 0
+        n_rejected_no_nb = 0
+        n_accepted = 0
+        build_limit = int(self.max_samples * 0.75)
         while i < build_limit and not rospy.is_shutdown():
             i += 1
 
-            # Periodically try to sample the start position directly
             if not self.goal_reached and (i % attempt_start_every == 0):
                 rand_pt = np.array(self.robot_pos)
             else:
-                # Biased sampling: goal_bias% near goal, rest uniform
                 rand_pt = self._sample_point(bias_center=goal_arr, bias_radius=bias_radius)
 
             new_idx = self._try_add_sample(rand_pt)
             if new_idx < 0:
+                if self._is_occupied(rand_pt[0], rand_pt[1]):
+                    n_rejected_occ += 1
+                else:
+                    n_rejected_edge += 1
                 continue
 
-            # Check if start connected
+            n_accepted += 1
+
             if np.allclose(self.tree.pos[new_idx], self.robot_pos, atol=self.goal_reach_thresh) \
                     and not self.goal_reached:
                 self.start_idx = new_idx
                 self.goal_reached = True
-                rospy.loginfo("[RRTx] Start connected at sample %d, cost=%.2f",
-                              i, self.tree.rhs[new_idx])
+                t_connected = time.time() - t_build_start
+                rospy.loginfo("[RRTx-BENCH] Start connected at attempt %d (%.1fs), "
+                              "tree=%d nodes, cost=%.2f",
+                              i, t_connected, self.tree.n, self.tree.rhs[new_idx])
 
             if i % 500 == 0:
                 self._publish_tree_marker()
-                rospy.loginfo("[RRTx] Building ... %d/%d nodes, tree size %d",
-                              i, build_limit, self.tree.n)
+                accept_rate = n_accepted / max(i, 1) * 100
+                rospy.loginfo("[RRTx] Building ... %d/%d attempts, tree=%d, "
+                              "accept=%.1f%%, rej_occ=%d rej_edge=%d",
+                              i, build_limit, self.tree.n,
+                              accept_rate, n_rejected_occ, n_rejected_edge)
 
             rate.sleep()
 
+        t_build = time.time() - t_build_start
         self.tree_built = True
+
+        accept_rate = n_accepted / max(i, 1) * 100
+        rospy.loginfo(
+            "[RRTx-BENCH] Build done: %d attempts in %.1fs | "
+            "accepted=%d (%.1f%%) | rej_occupied=%d | rej_edge_collision=%d | "
+            "tree_nodes=%d | epsilon=%.1fm | ball_r=%.1fm | "
+            "start_connected=%s",
+            i, t_build,
+            n_accepted, accept_rate,
+            n_rejected_occ, n_rejected_edge,
+            self.tree.n, self.epsilon, self.ball_radius,
+            str(self.goal_reached))
 
         if not self.goal_reached:
             dists = np.linalg.norm(self.tree.pos[:self.tree.n] - np.array(self.robot_pos), axis=1)
@@ -505,7 +584,12 @@ class RRTxNode(object):
                 rospy.loginfo("[RRTx] Using closest node %d (dist=%.2f) as start proxy, cost=%.2f",
                               self.start_idx, dists[self.start_idx], self.tree.rhs[self.start_idx])
             else:
-                rospy.logwarn("[RRTx] Could not find a feasible path to goal!")
+                rospy.logwarn("[RRTx-BENCH] FAILED: No feasible path after %d attempts (%.1fs). "
+                              "Narrow passage likely cause (free_ratio=%.1f%%, "
+                              "accept_rate=%.1f%%).",
+                              i, t_build,
+                              fs.get("free_ratio", 0) * 100 if fs else -1,
+                              accept_rate)
                 return
 
         rospy.loginfo("[RRTx] Tree built with %d nodes. Starting execution.", self.tree.n)
@@ -596,7 +680,12 @@ class RRTxNode(object):
         consecutive_failures = 0
         max_consecutive_failures = 3
 
-        # Publish initial path so smoother can start moving
+        t_exec_start = time.time()
+        exec_steps = 0
+        total_orphan_events = 0
+        total_repair_failures = 0
+        total_online_added = 0
+
         self._publish_path(curr)
 
         while curr != self.goal_idx and curr >= 0 and not rospy.is_shutdown():
@@ -630,20 +719,21 @@ class RRTxNode(object):
                     break
                 # Direct line was invalidated -- fall through to normal loop
 
-            # 0) Online sampling: densify tree around current area & path ahead
-            self._online_sample(curr)
+            exec_steps += 1
+            t_step_start = time.time()
 
-            # 1) Sense obstacles in local area (nodes + edges within sensing_radius)
+            added = self._online_sample(curr)
+            total_online_added += added
+
             changed = self._sense_and_update(curr)
 
-            # 2) Check ENTIRE remaining path to goal against latest occupancy grid
             path_changed = self._invalidate_path_ahead(curr)
             changed = changed or path_changed
 
             if changed:
+                total_orphan_events += 1
                 self._publish_tree_marker()
 
-            # 3) Check next step validity; attempt local repair if broken
             nxt = self.tree.parent[curr]
             path_ok = False
             for attempt in range(max_replan_attempts):
@@ -662,12 +752,20 @@ class RRTxNode(object):
                 self._publish_path(curr)
             else:
                 consecutive_failures += 1
+                total_repair_failures += 1
                 rospy.logwarn("[RRTx] Planning failed (%d/%d consecutive). Searching retreat ...",
                              consecutive_failures, max_consecutive_failures)
 
                 if consecutive_failures >= max_consecutive_failures:
-                    rospy.logerr("[RRTx] %d consecutive failures. No feasible path. Stopping.",
-                                 max_consecutive_failures)
+                    t_exec = time.time() - t_exec_start
+                    rospy.logerr(
+                        "[RRTx-BENCH] EXEC FAILED: %d consecutive failures after "
+                        "%d steps (%.1fs). orphan_events=%d repair_failures=%d "
+                        "online_added=%d invalidated_edges=%d obstacle_nodes=%d",
+                        max_consecutive_failures, exec_steps, t_exec,
+                        total_orphan_events, total_repair_failures,
+                        total_online_added, len(self.invalidated_edges),
+                        len(self.obstacle_nodes))
                     break
 
                 retreat = self._find_retreat_node(curr)
@@ -679,10 +777,23 @@ class RRTxNode(object):
                 else:
                     rospy.logwarn("[RRTx] No retreat node found.")
 
+            t_step = (time.time() - t_step_start) * 1000.0
+            if exec_steps % 10 == 0:
+                rospy.loginfo(
+                    "[RRTx-STEP] step=%d | step_time=%.1fms | "
+                    "tree=%d | inv_edges=%d | obs_nodes=%d",
+                    exec_steps, t_step, self.tree.n,
+                    len(self.invalidated_edges), len(self.obstacle_nodes))
+
             rate.sleep()
 
+        t_exec = time.time() - t_exec_start
         if curr == self.goal_idx:
-            rospy.loginfo("[RRTx] Goal reached!")
+            rospy.loginfo(
+                "[RRTx-BENCH] Goal reached in %.1fs, %d steps. "
+                "orphan_events=%d repair_failures=%d online_added=%d",
+                t_exec, exec_steps,
+                total_orphan_events, total_repair_failures, total_online_added)
             self._publish_path(self.goal_idx)
 
     def _find_retreat_node(self, curr_node):

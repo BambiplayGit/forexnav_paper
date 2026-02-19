@@ -29,6 +29,7 @@ Publishes:
 """
 
 import math
+import time
 import heapq
 import threading
 from collections import deque
@@ -66,6 +67,8 @@ class TraditionalPlanner(object):
         self.use_4connected = rospy.get_param("~use_4connected", True)
         self.stop_and_go = rospy.get_param("~stop_and_go", True)
         self.replan_delay = rospy.get_param("~replan_delay", 0.3)
+        self.naive_local_goal = rospy.get_param("~naive_local_goal", False)
+        self.planning_horizon = rospy.get_param("~planning_horizon", 10.0)
 
         # ---- Trajectory parameters ----
         self.max_vel = rospy.get_param("~max_vel", 2.0)
@@ -113,6 +116,11 @@ class TraditionalPlanner(object):
         self.traj_valid = False
         self.vel_profile_s = None
         self.vel_profile_v = None
+
+        # ---- Timing statistics ----
+        self._plan_times = []
+        self._astar_times = []
+        self._bspline_times = []
 
         # ---- ROS I/O ----
         self.pub_cmd = rospy.Publisher(
@@ -205,6 +213,9 @@ class TraditionalPlanner(object):
     def _astar(self, start_rc, goal_rc):
         if self.occ_data is None:
             return None
+
+        t_total_start = time.time()
+
         occupied = (self.occ_data > self.obstacle_thresh).astype(np.uint8)
 
         sr, sc = start_rc
@@ -223,15 +234,17 @@ class TraditionalPlanner(object):
             if gr is None:
                 return None
 
-        # Obstacle proximity cost map (like ROS costmap inflation layer)
         from scipy.ndimage import distance_transform_edt
+        t_edt_start = time.time()
         obs_dist = distance_transform_edt(1 - occupied)
+        t_edt = time.time() - t_edt_start
         rad = self.obs_cost_radius
         prox_cost = np.where(obs_dist < rad,
                              self.cost_near_obs * (1.0 - obs_dist / rad),
                              0.0)
 
         w_h = self.w_heuristic
+        eucl_dist = math.sqrt((sr - gr) ** 2 + (sc - gc) ** 2)
 
         def h(r, c):
             return math.sqrt((r - gr) ** 2 + (c - gc) ** 2)
@@ -251,6 +264,8 @@ class TraditionalPlanner(object):
         came_from = {}
         closed = set()
 
+        t_search_start = time.time()
+
         while open_set:
             f, g, r, c = heapq.heappop(open_set)
             if (r, c) in closed:
@@ -263,6 +278,21 @@ class TraditionalPlanner(object):
                     r, c = came_from[(r, c)]
                     path.append((r, c))
                 path.reverse()
+
+                t_search = time.time() - t_search_start
+                t_total = time.time() - t_total_start
+                path_cost = g
+                ratio = path_cost / max(eucl_dist, 1e-6)
+                rospy.loginfo(
+                    "[A*-BENCH] w=%.1f | grid=%dx%d (%d cells) | "
+                    "eucl=%.0f cells | expanded=%d | path_len=%d | "
+                    "path_cost=%.1f | cost/eucl=%.2f | "
+                    "t_edt=%.3fs | t_search=%.3fs | t_total=%.3fs",
+                    w_h, self.occ_width, self.occ_height,
+                    self.occ_width * self.occ_height,
+                    eucl_dist, len(closed), len(path),
+                    path_cost, ratio,
+                    t_edt, t_search, t_total)
                 return path
 
             for (dr, dc), cost in zip(DIRS, COSTS):
@@ -279,6 +309,9 @@ class TraditionalPlanner(object):
                     came_from[(nr, nc)] = (r, c)
                     heapq.heappush(open_set, (ng + w_h * h(nr, nc), ng, nr, nc))
 
+        t_total = time.time() - t_total_start
+        rospy.logwarn("[A*-BENCH] w=%.1f | FAILED | expanded=%d | t_total=%.3fs",
+                      w_h, len(closed), t_total)
         return None
 
     def _nearest_free(self, inflated, row, col, max_radius=50):
@@ -334,15 +367,31 @@ class TraditionalPlanner(object):
         if self.goal_pos is None:
             return False
 
+        t_plan_start = time.time()
+
         robot_xy = (float(self.robot_pos[0]), float(self.robot_pos[1]))
         start_rc = self._world_to_grid(robot_xy[0], robot_xy[1])
-        goal_rc = self._world_to_grid(self.goal_pos[0], self.goal_pos[1])
+
+        if self.naive_local_goal:
+            dx = self.goal_pos[0] - robot_xy[0]
+            dy = self.goal_pos[1] - robot_xy[1]
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist > self.planning_horizon:
+                ratio = self.planning_horizon / dist
+                lg_x = robot_xy[0] + ratio * dx
+                lg_y = robot_xy[1] + ratio * dy
+            else:
+                lg_x, lg_y = self.goal_pos
+            goal_rc = self._world_to_grid(lg_x, lg_y)
+        else:
+            goal_rc = self._world_to_grid(self.goal_pos[0], self.goal_pos[1])
 
         grid_path = self._astar(start_rc, goal_rc)
         if grid_path is None:
             rospy.logwarn("[Traditional] No A* path found!")
             self.current_path = None
             return False
+        t_astar = time.time() - t_plan_start
 
         world_path = [self._grid_to_world(r, c) for r, c in grid_path]
         world_path[0] = robot_xy
@@ -361,7 +410,31 @@ class TraditionalPlanner(object):
                       len(grid_path), len(local_path), local_len)
 
         wps = [np.array(p) for p in local_path]
+        t_bspline_start = time.time()
         self._fit_bspline(wps)
+        t_bspline = time.time() - t_bspline_start
+        t_plan_total = time.time() - t_plan_start
+
+        self._astar_times.append(t_astar)
+        self._bspline_times.append(t_bspline)
+        self._plan_times.append(t_plan_total)
+
+        rospy.loginfo(
+            "[PLAN-BENCH] t_astar=%.3fs | t_bspline=%.3fs | t_total=%.3fs",
+            t_astar, t_bspline, t_plan_total)
+
+        if len(self._plan_times) % 5 == 0:
+            at = np.array(self._astar_times)
+            bt = np.array(self._bspline_times)
+            pt = np.array(self._plan_times)
+            rospy.loginfo(
+                "[PLAN-STATS] n=%d | astar: mean=%.3f std=%.3f max=%.3f | "
+                "bspline: mean=%.3f std=%.3f max=%.3f | "
+                "total: mean=%.3f std=%.3f max=%.3f (seconds)",
+                len(pt),
+                at.mean(), at.std(), at.max(),
+                bt.mean(), bt.std(), bt.max(),
+                pt.mean(), pt.std(), pt.max())
         return True
 
     # ===================================================================

@@ -7,7 +7,7 @@
     <!-- ║        maze_simple  maze  tunnel1  cmu                  ║ -->
     <!-- ║        library  hkust1  hkust2  hkust3                  ║ -->
     <!-- ╚══════════════════════════════════════════════════════════╝ -->
-    <arg name="algorithm" default="astar" />
+    <arg name="algorithm" default="frtree" />
     <arg name="map_name"  default="hkust1"   />
 
     <!-- ==================== 其他全局参数 ==================== -->
@@ -148,7 +148,7 @@
 
     <!-- library -->
     <arg name="library_init_x"    value="9.8"/>
-    <arg name="library_init_y"    value="13.6"/>
+    <arg name="library_init_y"    value="13.6"/> 
     <arg name="library_init_yaw"  value="3.14"/>
     <arg name="library_goal_x"   value="0.00"/>
     <arg name="library_goal_y"   value="0.00"/>
@@ -163,11 +163,16 @@
 
     <!-- hkust1 -->
     <!-- MAP_TRAJECTORIES[hkust1]="-8 -26.2 -1.2 30 18.5 -25.2 20.1 25" -->
-    <arg name="hkust1_init_x"    value="16.54"/>
+    <!-- <arg name="hkust1_init_x"    value="16.54"/>
     <arg name="hkust1_init_y"    value="25.52"/>
     <arg name="hkust1_init_yaw"  value="0.00"/>
     <arg name="hkust1_goal_x"   value="-3.44"/>
-    <arg name="hkust1_goal_y"   value="-30.31"/>
+    <arg name="hkust1_goal_y"   value="-30.31"/> -->
+    <arg name="hkust1_init_x"    value="-11.54"/>
+    <arg name="hkust1_init_y"    value="25.52"/>
+    <arg name="hkust1_init_yaw"  value="0.00"/>
+    <arg name="hkust1_goal_x"   value="14.90"/>
+    <arg name="hkust1_goal_y"   value="-31.12"/>
     <arg name="hkust1_box_min_x" value="-25.0"/>
     <arg name="hkust1_box_min_y" value="-33.0"/>
     <arg name="hkust1_box_max_x" value="25.0"/>

@@ -40,6 +40,8 @@
         <param name="acc_ratio" value="0.4" />
         <param name="lat_acc_ratio" value="0.3" />
         <param name="vel_smooth_window" value="0.4" />
+        <param name="naive_local_goal" value="false" />
+        <param name="planning_horizon" value="10.0" />
     </node>
 
     <!-- RViz -->

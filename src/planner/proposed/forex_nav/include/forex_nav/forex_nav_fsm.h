@@ -116,6 +116,9 @@ private:
   
   // State strings for logging
   std::vector<std::string> state_str_;
+
+  // Timing statistics for benchmarking
+  std::vector<double> plan_times_ms_;
 };
 
 }  // namespace forex_nav

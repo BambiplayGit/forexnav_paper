@@ -2,6 +2,8 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <quadrotor_msgs/PositionCommand.h>
 #include <cmath>
+#include <chrono>
+#include <numeric>
 #include <Eigen/Core>
 
 namespace forex_nav {
@@ -397,6 +399,8 @@ void ForexNavFSM::execTrajCallback(const ros::TimerEvent&) {
 }
 
 int ForexNavFSM::callPlanner() {
+  auto t_plan_start = std::chrono::high_resolution_clock::now();
+
   if (!fd_->have_odom_ || !fd_->have_goal_) {
     ROS_WARN("Missing odom or goal for planning");
     return -1;
@@ -518,6 +522,27 @@ int ForexNavFSM::callPlanner() {
   
   visualize();
   
+  auto t_plan_end = std::chrono::high_resolution_clock::now();
+  double plan_ms = std::chrono::duration<double, std::milli>(t_plan_end - t_plan_start).count();
+  plan_times_ms_.push_back(plan_ms);
+
+  ROS_INFO("[FOREX-BENCH] plan_time=%.1fms", plan_ms);
+
+  if (plan_times_ms_.size() % 5 == 0) {
+    size_t n = plan_times_ms_.size();
+    double sum = std::accumulate(plan_times_ms_.begin(), plan_times_ms_.end(), 0.0);
+    double mean = sum / n;
+    double sq_sum = 0.0;
+    double mx = 0.0;
+    for (double v : plan_times_ms_) {
+      sq_sum += (v - mean) * (v - mean);
+      if (v > mx) mx = v;
+    }
+    double stddev = std::sqrt(sq_sum / n);
+    ROS_INFO("[FOREX-STATS] n=%zu | plan_time: mean=%.1fms std=%.1fms max=%.1fms",
+              n, mean, stddev, mx);
+  }
+
   return 0;
 }
 
